@@ -1,0 +1,12 @@
+ompiled python
+*.pyc
+
+# IPython notebook checkpoints
+.ipynb_checkpoints
+
+# Editor temporaries
+*.swp
+*~
+
+# pycharm
+.idea
