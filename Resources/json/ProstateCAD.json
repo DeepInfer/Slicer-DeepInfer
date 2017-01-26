@@ -1,0 +1,83 @@
+{
+  "name" : "Prostate CAD",
+  "template_code_filename" : "ImageFilter",
+  "template_test_filename" : "ImageFilter",
+  "number_of_inputs" : 1,
+  "doc" : "Compute the voxel-wise absolute value of an image",
+  "pixel_types" : "BasicPixelIDTypeList",
+  "vector_pixel_types_by_component" : "VectorPixelIDTypeList",
+  "members" : [
+    {
+      "name" : "Ktrans",
+      "type" : "InputVolume",
+      "default" : "std::vector<unsigned int>(3, 64)",
+      "itk_type" : "typename FilterType::SizeType"
+    },
+     {
+      "name" : "ADC",
+      "type" : "InputVolume",
+      "default" : "std::vector<unsigned int>(3, 64)",
+      "itk_type" : "typename FilterType::SizeType"
+    },
+     {
+      "name" : "BVAL",
+      "type" : "InputVolume",
+      "default" : "std::vector<unsigned int>(3, 64)",
+      "itk_type" : "typename FilterType::SizeType"
+    },
+    {
+      "name" : "Finding Index",
+      "type" : "int",
+      "default" : "std::vector<int>(3, 0)",
+      "dim_vec" : 1,
+      "itk_type" : "typename InputImageType::IndexType",
+      "custom_itk_cast" : " typename InputImageType::RegionType itkRegion;\n  for( unsigned int i = 0; i < inImage1.GetDimension(); ++i )\n    {\n    itkRegion.SetIndex( i, m_SourceIndex[i] );\n    itkRegion.SetSize( i, m_SourceSize[i] );\n    }\n  filter->SetSourceRegion( itkRegion );"
+    },
+
+    {
+      "name" : "Zone",
+      "enum" : [
+        "PZ",
+        "TZ",
+        "AS"
+      ],
+      "briefdescriptionSet" : "",
+      "detaileddescriptionGet" : "Type of connectivity to use (fully connected OR 4(2D), 6(3D), 2*N(ND) connectivity)"
+    },
+    {
+      "name" : "Clinical Significance",
+      "type" : "double",
+      "dim_vec" : 0,
+      "set_as_scalar" : 1,
+      "default" : "std::vector<double>(1, 16.0)",
+      "itk_type" : "typename FilterType::ArrayType",
+      "briefdescriptionSet" : "",
+      "detaileddescriptionSet" : "Gets and sets for Gaussian parameters",
+      "briefdescriptionGet" : "",
+      "detaileddescriptionGet" : "Gets and sets for Gaussian parameters"
+    }
+
+],
+  "tests" : [
+    {
+      "tag" : "float",
+      "description" : "Abs of a float image",
+      "tolerance" : 0.01,
+      "settings" : [],
+      "inputs" : [
+        "Input/RA-Slice-Float.nrrd"
+      ]
+    },
+    {
+      "tag" : "short",
+      "description" : "Abs of a short image",
+      "tolerance" : 0.01,
+      "settings" : [],
+      "inputs" : [
+        "Input/RA-Slice-Short.nrrd"
+      ]
+    }
+  ],
+  "briefdescription" : "Computes the absolute value of each pixel.",
+  "detaileddescription" : "vnl_math_abs() is used to perform the computation.\n\n\\par Wiki Examples:\n\n\\li All Examples \n\n\\li Compute the absolute value of an image"
+}
