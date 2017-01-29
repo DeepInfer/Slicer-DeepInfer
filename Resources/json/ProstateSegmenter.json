@@ -9,13 +9,15 @@
   "members" : [
     {
       "name" : "Input Volume",
-      "type" : "InputVolume",
+      "type" : "volume",
+      "iotype" : "input",
       "default" : "std::vector<unsigned int>(3, 64)",
       "itk_type" : "typename FilterType::SizeType"
     },
    {
       "name" : "Output Label",
-      "type" : "OutputVolume",
+      "type" : "volume",
+     "iotype" : "output",
       "default" : "std::vector<unsigned int>(3, 64)",
       "itk_type" : "typename FilterType::SizeType"
     }

@@ -303,6 +303,62 @@ class DeepInferWidget:
 
     def onApplyButton(self):
         print("on Apply")
+        print(self.modelParameters.modeldict)
+        # print(self.modelParameters.inputs)
+        # print(self.modelParameters.outputs)
+        for item in self.modelParameters.modeldict:
+            if self.modelParameters.modeldict[item]["iotype"] == "input":
+                print('-'*100)
+                print('inputs')
+                print(self.modelParameters.inputs[item])
+                if self.modelParameters.modeldict[item]['type'] == "volume":
+                    input_node_name = self.modelParameters.inputs[item].GetName()
+                    img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
+                    img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
+                    sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
+            if self.modelParameters.modeldict[item]["iotype"] == "output":
+                print('-'*100)
+                print('outputs')
+                print(self.modelParameters.outputs[item])
+
+        import os, subprocess
+        cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
+                  '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
+                  'deepinfer/prostate-segmenter-cpu',
+                  '-i', '/home/deepinfer/data/input.nrrd',
+                  '-o', '/home/deepinfer/data/input_label.nrrd']
+        # os.system(cmd)
+        #'''
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        slicer.app.processEvents()
+        while True:
+            slicer.app.processEvents()
+            line = p.stdout.readline()
+            if not line:
+                break
+            print(line)
+        #'''
+        # result = sitk.ReadImage('/home/mehrtash/tmp/deepinfer/output.nrrd')
+        result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
+        # sitkUtils.PushToSlicer(result, 'result_label')
+        # sitkUtils.PushLabel(result, 'input_label')
+
+        output_node = self.modelParameters.outputs['Output Label']
+        output_node_name = output_node.GetName()
+        nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
+        sitk.WriteImage(result, nodeWriteAddress)
+        applicationLogic = slicer.app.applicationLogic()
+        selectionNode = applicationLogic.GetSelectionNode()
+
+        outputLabelMap = True
+        if outputLabelMap:
+            selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
+        else:
+            selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
+
+        applicationLogic.PropagateVolumeSelection(0)
+        applicationLogic.FitSliceToAll()
+
         '''
         try:
 
@@ -310,7 +366,9 @@ class DeepInferWidget:
 
             self.modelParameters.prerun()
 
-            self.logic = DeepInferLogic()
+            self.logic = SimpleFiltersLogic()
+
+
 
             self.printPythonCommand()
 
@@ -574,6 +632,7 @@ class ModelParameters(object):
         self.output = None
         self.prerun_callbacks = []
         self.outputLabelMap = False
+        self.modeldict = dict()
 
         self.outputSelector = None
         self.outputLabelMapBox = None
@@ -594,7 +653,8 @@ class ModelParameters(object):
         # exec ('self.model = sitk.{0}()'.format(json["name"])) in globals(), locals()
 
         self.prerun_callbacks = []
-        self.inputs = []
+        self.inputs = dict()
+        self.outputs = dict()
         self.outputLabelMap = False
 
         #
@@ -741,6 +801,7 @@ class ModelParameters(object):
                     self.widgets.append(toggle)
 
                     w2 = self.createVectorWidget(member["name"], t)
+                    self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
 
                     hlayout = qt.QHBoxLayout()
                     hlayout.addWidget(fiducialSelector)
@@ -760,6 +821,7 @@ class ModelParameters(object):
 
                 else:
                     w = self.createVectorWidget(member["name"], t)
+                    self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
 
             elif "point_vec" in member:
 
@@ -787,14 +849,17 @@ class ModelParameters(object):
 
             elif "enum" in member:
                 w = self.createEnumWidget(member["name"], member["enum"])
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
             elif member["name"].endswith("Direction") and "std::vector" in t:
                 # This member name is use for direction cosine matrix for image sources.
                 # We are going to ignore it
                 pass
-            elif t in ["InputVolume", "OutputVolume"]:
-                w = self.createVolumeWidget(member["name"], False)
+            elif t == "volume":
+                w = self.createVolumeWidget(member["name"], member["iotype"], False)
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
 
             elif t == "InterpolatorEnum":
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
                 labels = ["Nearest Neighbor",
                           "Linear",
                           "BSpline",
@@ -838,14 +903,17 @@ class ModelParameters(object):
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
                 w = self.createDoubleWidget(member["name"])
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
             elif t == "bool":
                 w = self.createBoolWidget(member["name"])
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
             elif t in ["uint8_t", "int8_t",
                        "uint16_t", "int16_t",
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
                 w = self.createIntWidget(member["name"], t)
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
@@ -901,12 +969,15 @@ class ModelParameters(object):
         parametersFormLayout.addRow(outputLabelMapLabel, self.outputLabelMapBox)
         '''
 
-    def createVolumeWidget(self, name, noneEnabled=False):
+    def createVolumeWidget(self, name, iotype, noneEnabled=False):
         volumeSelector = slicer.qMRMLNodeComboBox()
         self.widgets.append(volumeSelector)
         volumeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
         volumeSelector.selectNodeUponCreation = True
-        volumeSelector.addEnabled = False
+        if iotype == "input":
+            volumeSelector.addEnabled = False
+        elif iotype == "output":
+            volumeSelector.addEnabled = True
         volumeSelector.removeEnabled = False
         volumeSelector.noneEnabled = noneEnabled
         volumeSelector.showHidden = False
@@ -915,7 +986,12 @@ class ModelParameters(object):
         volumeSelector.setToolTip("Pick the volume.")
 
         # connect and verify parameters
-        volumeSelector.connect("nodeActivated(vtkMRMLNode*)", lambda node, n=name: self.onInputSelect(node, n))
+        volumeSelector.connect("nodeActivated(vtkMRMLNode*)", lambda node, n=name, io=iotype: self.onVolumeSelect(node, n, io))
+        if iotype == "input":
+            self.inputs[name] = volumeSelector.currentNode()
+        elif iotype == "output":
+            self.outputs[name] = volumeSelector.currentNode()
+
         return volumeSelector
 
     def createEnumWidget(self, name, enumList, valueList=None):
@@ -1049,12 +1125,17 @@ class ModelParameters(object):
             # This will update the model from the widget
             ptWidget.coordinates = ",".join(str(x) for x in ptWidget.coordinates.split(','))
 
-    def onInputSelect(self, mrmlNode, n):
-        self.inputs[n] = mrmlNode
+    def onVolumeSelect(self, mrmlNode, n, io):
+        if io == "input":
+            self.inputs[n] = mrmlNode
+        elif io == "output":
+            self.outputs[n] = mrmlNode
 
+    '''
     def onOutputSelect(self, mrmlNode):
         self.output = mrmlNode
         self.onOutputLabelMapChanged(mrmlNode.IsA("vtkMRMLLabelMapVolumeNode"))
+    '''
 
     def onOutputLabelMapChanged(self, v):
         self.outputLabelMap = v
@@ -1151,7 +1232,9 @@ class ModelParameters(object):
             f()
 
     def destroy(self):
-
+        self.modeldict = dict()
+        self.inputs = dict()
+        self.outputs = dict()
         for w in self.widgets:
             # self.parent.layout().removeWidget(w)
             w.deleteLater()
