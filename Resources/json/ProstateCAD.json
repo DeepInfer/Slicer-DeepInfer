@@ -29,7 +29,7 @@
       "itk_type" : "typename FilterType::SizeType"
     },
     {
-      "name" : "Finding Index",
+      "name" : "FindingIndex",
       "type" : "int",
       "iotype" : "input",
       "default" : "std::vector<int>(3, 0)",
@@ -51,7 +51,7 @@
       "detaileddescriptionGet" : "Type of connectivity to use (fully connected OR 4(2D), 6(3D), 2*N(ND) connectivity)"
     },
     {
-      "name" : "Clinical Significance",
+      "name" : "ClinicalSignificance",
       "type" : "double",
       "iotype" : "output",
       "dim_vec" : 0,

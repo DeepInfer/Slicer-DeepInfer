@@ -8,14 +8,14 @@
   "vector_pixel_types_by_component" : "VectorPixelIDTypeList",
   "members" : [
     {
-      "name" : "Input Volume",
+      "name" : "InputVolume",
       "type" : "volume",
       "iotype" : "input",
       "default" : "std::vector<unsigned int>(3, 64)",
       "itk_type" : "typename FilterType::SizeType"
     },
    {
-      "name" : "Output Label",
+      "name" : "OutputLabel",
       "type" : "volume",
      "iotype" : "output",
       "default" : "std::vector<unsigned int>(3, 64)",

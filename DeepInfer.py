@@ -5,6 +5,7 @@ from glob import glob
 import json
 from collections import OrderedDict
 import re
+import subprocess
 import threading
 import Queue
 from time import sleep
@@ -30,22 +31,21 @@ class DeepInfer:
 
     def __init__(self, parent):
         parent.title = "DeepInfer"
-        parent.categories = ["Wizards"]
+        parent.categories = ["Machine Learning"]
         parent.dependencies = []
         parent.contributors = ["Alireza Mehrtash (UBC/BWH/SPL), Mehran Pesteie (UBC)"]
         parent.helpText = \
             """
-            This modules provides a basic interface to
-
+            This modules provides a basic interface to deploy machine learning and deep learning models in Slicer using Docker.
             For general information about the module see the <a href=\"{0}/Documentation/Nightly/Modules/DeepInfer\">online documentation</a>.
             <br /><br />
-
-            For detailed information about a specific model please consult the <a href=\"http://www.deepinfer.org/\">Insight Toolkit Doxygen</a>.
+            For detailed information about a specific model please consult the <a href=\"http://www.deepinfer.org/\">DeepInfer website</a>.
              """.format(parent.slicerWikiUrl, slicer.app.majorVersion, slicer.app.minorVersion)
 
+
         parent.acknowledgementText = """
-The developers would like to thank the support of the Slicer Community, the Insight Toolkit and the ITK Community."
-"""  # replace with organization, grant and thanks.
+        The developers would like to thank the support of the Surgical Planning Lab, the University of British Columbia, Slicer Community and the Insight Toolkit.
+        """
         self.parent = parent
 
         parent.icon = qt.QIcon("%s/ITK.png" % self.ICON_DIR)
@@ -105,12 +105,13 @@ class DeepInferWidget:
         globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
     def setup(self):
+
+        # Instantiate and connect widgets ...
         #
         # Reload and Test area
         #
         reloadCollapsibleButton = ctk.ctkCollapsibleButton()
         reloadCollapsibleButton.text = "Reload && Test"
-        self.layout.addWidget(reloadCollapsibleButton)
         reloadFormLayout = qt.QFormLayout(reloadCollapsibleButton)
 
         # reload button
@@ -121,36 +122,45 @@ class DeepInferWidget:
         self.reloadButton.name = "Freehand3DUltrasound Reload"
         reloadFormLayout.addWidget(self.reloadButton)
         self.reloadButton.connect('clicked()', self.onReload)
+        # uncomment the following line for debug/development.
+        self.layout.addWidget(reloadCollapsibleButton)
 
-        # Instantiate and connect widgets ...
         # Model Repository Area
-        self.modelRepositoryCollapsibleGroupBox = ctk.ctkCollapsibleGroupBox()
-        self.modelRepositoryCollapsibleGroupBox.setTitle('Cloud Model Repository')
-        self.layout.addWidget(self.modelRepositoryCollapsibleGroupBox)
-        modelRepositoryVBoxLayout1 = qt.QVBoxLayout(self.modelRepositoryCollapsibleGroupBox)
+        self.modelRepoGroupBox = ctk.ctkCollapsibleGroupBox()
+        self.modelRepoGroupBox.setTitle('Cloud Model Repository')
+        self.layout.addWidget(self.modelRepoGroupBox)
+        modelRepoVBLayout1 = qt.QVBoxLayout(self.modelRepoGroupBox)
         modelRepositoryExpdableArea = ctk.ctkExpandableWidget()
-        modelRepositoryVBoxLayout1.addWidget(modelRepositoryExpdableArea)
-        modelRepositoryVBoxLayout2 = qt.QVBoxLayout(modelRepositoryExpdableArea)
+        modelRepoVBLayout1.addWidget(modelRepositoryExpdableArea)
+        modelRepoVBLayout2 = qt.QVBoxLayout(modelRepositoryExpdableArea)
         # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
-        self.modelRepositoryTableWidget = qt.QTableWidget()
+        self.modelRepoTableW = qt.QTableWidget()
         self.modelRepositoryModel = qt.QStandardItemModel()
-        self.modelRepositoryTableHeaderLabels = ['Model Name', 'Organ', 'Task', 'Status']
-        self.modelRepositoryTableWidget.setColumnCount(4)
-        self.modelRepositoryTableWidget.sortingEnabled = True
-        self.modelRepositoryTableWidget.setHorizontalHeaderLabels(self.modelRepositoryTableHeaderLabels)
-        self.modelRepositoryTableWidgetHeader = self.modelRepositoryTableWidget.horizontalHeader()
+        self.modelRepositoryTableHeaderLabels = ['Model', 'Organ', 'Task', 'Status']
+        self.modelRepoTableW.setColumnCount(4)
+        self.modelRepoTableW.sortingEnabled = True
+        self.modelRepoTableW.setHorizontalHeaderLabels(self.modelRepositoryTableHeaderLabels)
+        self.modelRepositoryTableWidgetHeader = self.modelRepoTableW.horizontalHeader()
         self.modelRepositoryTableWidgetHeader.setStretchLastSection(True)
-        # modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
-        modelRepositoryVBoxLayout2.addWidget(self.modelRepositoryTableWidget)
-        self.modelRepositoryTreeSelectionModel = self.modelRepositoryTableWidget.selectionModel()
+        #self.modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
+        modelRepoVBLayout2.addWidget(self.modelRepoTableW)
+        self.modelRepositoryTreeSelectionModel = self.modelRepoTableW.selectionModel()
         abstractItemView = qt.QAbstractItemView()
-        self.modelRepositoryTableWidget.setSelectionBehavior(abstractItemView.SelectRows)
-        verticalheader = self.modelRepositoryTableWidget.verticalHeader()
+        self.modelRepoTableW.setSelectionBehavior(abstractItemView.SelectRows)
+        verticalheader = self.modelRepoTableW.verticalHeader()
         verticalheader.setDefaultSectionSize(20)
-        modelRepositoryVBoxLayout1.setSpacing(0)
-        modelRepositoryVBoxLayout2.setSpacing(0)
-        modelRepositoryVBoxLayout1.setMargin(0)
-        modelRepositoryVBoxLayout2.setContentsMargins(7, 3, 7, 7)
+        modelRepoVBLayout1.setSpacing(0)
+        modelRepoVBLayout2.setSpacing(0)
+        modelRepoVBLayout1.setMargin(0)
+        modelRepoVBLayout2.setContentsMargins(7, 3, 7, 7)
+        refreshWidget = qt.QWidget()
+        modelRepoVBLayout2.addWidget(refreshWidget)
+        hBoXLayout = qt.QHBoxLayout(refreshWidget)
+        hBoXLayout.setSpacing(0)
+        hBoXLayout.setMargin(0)
+        refreshButton = qt.QPushButton('refresh')
+        hBoXLayout.addStretch(1)
+        hBoXLayout.addWidget(refreshButton)
 
         #
         # Local Models Area
@@ -234,6 +244,7 @@ class DeepInferWidget:
         self.layout.addLayout(hlayout)
 
         # connections
+        refreshButton.connect('clicked(bool)', self.onRefreshButton)
         self.restoreDefaultsButton.connect('clicked(bool)', self.onRestoreDefaultsButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
         self.cancelButton.connect('clicked(bool)', self.onCancelButton)
@@ -262,6 +273,7 @@ class DeepInferWidget:
         print "\n".join(printStr)
 
     def onLogicRunStop(self):
+        print("onLogicRunStop")
         self.applyButton.setEnabled(True)
         self.restoreDefaultsButton.setEnabled(True)
         self.cancelButton.setEnabled(False)
@@ -269,6 +281,7 @@ class DeepInferWidget:
         self.progress.hide()
 
     def onLogicRunStart(self):
+        print("onLogicRunStart")
         self.applyButton.setEnabled(False)
         self.restoreDefaultsButton.setEnabled(False)
 
@@ -298,85 +311,24 @@ class DeepInferWidget:
         else:
             self.modelSelector.setToolTip("")
 
+    def onRefreshButton(self):
+        print("onRefreshButton")
+
     def onRestoreDefaultsButton(self):
         self.onModelSelect(self.modelSelector.currentIndex)
 
     def onApplyButton(self):
-        print("on Apply")
-        print(self.modelParameters.modeldict)
-        # print(self.modelParameters.inputs)
-        # print(self.modelParameters.outputs)
-        for item in self.modelParameters.modeldict:
-            if self.modelParameters.modeldict[item]["iotype"] == "input":
-                print('-'*100)
-                print('inputs')
-                print(self.modelParameters.inputs[item])
-                if self.modelParameters.modeldict[item]['type'] == "volume":
-                    input_node_name = self.modelParameters.inputs[item].GetName()
-                    img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
-                    img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
-                    sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
-            if self.modelParameters.modeldict[item]["iotype"] == "output":
-                print('-'*100)
-                print('outputs')
-                print(self.modelParameters.outputs[item])
-
-        import os, subprocess
-        cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
-                  '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
-                  'deepinfer/prostate-segmenter-cpu',
-                  '-i', '/home/deepinfer/data/input.nrrd',
-                  '-o', '/home/deepinfer/data/input_label.nrrd']
-        # os.system(cmd)
-        #'''
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        slicer.app.processEvents()
-        while True:
-            slicer.app.processEvents()
-            line = p.stdout.readline()
-            if not line:
-                break
-            print(line)
-        #'''
-        # result = sitk.ReadImage('/home/mehrtash/tmp/deepinfer/output.nrrd')
-        result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
-        # sitkUtils.PushToSlicer(result, 'result_label')
-        # sitkUtils.PushLabel(result, 'input_label')
-
-        output_node = self.modelParameters.outputs['Output Label']
-        output_node_name = output_node.GetName()
-        nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
-        sitk.WriteImage(result, nodeWriteAddress)
-        applicationLogic = slicer.app.applicationLogic()
-        selectionNode = applicationLogic.GetSelectionNode()
-
-        outputLabelMap = True
-        if outputLabelMap:
-            selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
-        else:
-            selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
-
-        applicationLogic.PropagateVolumeSelection(0)
-        applicationLogic.FitSliceToAll()
-
-        '''
         try:
 
             self.currentStatusLabel.text = "Starting"
-
             self.modelParameters.prerun()
-
-            self.logic = SimpleFiltersLogic()
-
-
+            self.logic = DeepInferLogic()
 
             self.printPythonCommand()
-
-            # print "running..."
-            self.logic.run(self.modelParameters.model,
-                           self.modelParameters.output,
-                           self.modelParameters.outputLabelMap,
-                           *self.modelParameters.inputs)
+            print("running...")
+            self.logic.run(self.modelParameters.modeldict,
+                           self.modelParameters.inputs,
+                           self.modelParameters.outputs)
 
         except:
             self.currentStatusLabel.text = "Exception"
@@ -390,7 +342,6 @@ class DeepInferWidget:
             qt.QMessageBox.critical(slicer.util.mainWindow(),
                                     "Exception before execution of {0}".format(self.modelParameters.model.GetName()),
                                     msg)
-        '''
 
     def onCancelButton(self):
         self.currentStatusLabel.text = "Aborting"
@@ -408,7 +359,7 @@ class DeepInferWidget:
         self.progress.setValue(1000)
 
     def onLogicEventAbort(self):
-        # print "Aborting..."
+        print("on logic event Abort")
         self.currentStatusLabel.text = "Aborted"
 
     def onLogicEventProgress(self, progress):
@@ -446,79 +397,80 @@ class DeepInferLogic:
     def yieldPythonGIL(self, seconds=0):
         sleep(seconds)
 
-    def cmdCheckAbort(self, sitkModel):
+    def cmdCheckAbort(self, p):
         if self.abort:
-            sitkModel.Abort()
+            p.kill()
+            self.cmdAbortEvent()
 
-    def cmdStartEvent(self, sitkModel):
+    def cmdStartEvent(self):
         # print "cmStartEvent"
         widget = slicer.modules.DeepInferWidget
-        self.main_queue.put(lambda: widget.onLogicEventStart())
+        widget.onLogicEventStart()
         self.yieldPythonGIL()
 
-    def cmdProgressEvent(self, sitkModel):
-        # print "cmProgressEvent", sitkModel.GetProgress()
+    def cmdProgressEvent(self, progress):
         widget = slicer.modules.DeepInferWidget
-        self.main_queue.put(lambda p=sitkModel.GetProgress(): widget.onLogicEventProgress(p))
-        self.cmdCheckAbort(sitkModel)
+        # print('todo:add main_queue.put for progress here')
+        widget.onLogicEventProgress(progress)
         self.yieldPythonGIL()
 
-    def cmdIterationEvent(self, sitkModel, nIter):
-        print "cmIterationEvent"
+    def cmdAbortEvent(self):
+        print('cmdAbortEvent')
         widget = slicer.modules.DeepInferWidget
-        self.main_queue.put(lambda: widget.onLogicEventIteration(nIter))
-        ++nIter;
-        self.cmdCheckAbort(sitkModel)
-        self.yieldPythonGIL()
-
-    def cmdAbortEvent(self, sitkModel):
-        # print "cmAbortEvent"
-        widget = slicer.modules.DeepInferWidget
-        self.main_queue.put(lambda: widget.onLogicEventAbort())
+        widget.onLogicEventAbort()
         self.yieldPythonGIL()
 
     def cmdEndEvent(self):
-        # print "cmEndEvent"
+        print("cmEndEvent")
         widget = slicer.modules.DeepInferWidget
-        self.main_queue.put(lambda: widget.onLogicEventEnd())
+        widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
-    def thread_doit(self, sitkModel, *inputImages):
-        print('tread doit')
-        '''
+    def execute_docker(self, modeldict, inputs, outputs):
+      self.cmdStartEvent()
+      for item in modeldict:
+          if modeldict[item]["iotype"] == "input":
+              if modeldict[item]['type'] == "volume":
+                  input_node_name = inputs[item].GetName()
+                  img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
+                  img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
+                  sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
+
+      cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
+                '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
+                'deepinfer/prostate-segmenter-cpu',
+                '-i', '/home/deepinfer/data/input.nrrd',
+                '-o', '/home/deepinfer/data/input_label.nrrd']
+      p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+      progress = 0
+      while True:
+          progress += 0.01
+          slicer.app.processEvents()
+          self.cmdCheckAbort(p)
+          self.cmdProgressEvent(progress)
+          line = p.stdout.readline()
+          if not line:
+              break
+          print(line)
+
+    def thread_doit(self, modeldict, inputs, outputs):
         try:
-
-            nIter = 0
-            try:
-                sitkModel.AddCommand(sitk.sitkStartEvent, lambda: self.cmdStartEvent(sitkModel))
-                sitkModel.AddCommand(sitk.sitkProgressEvent, lambda: self.cmdProgressEvent(sitkModel))
-                sitkModel.AddCommand(sitk.sitkIterationEvent, lambda: self.cmdIterationEvent(sitkModel, nIter))
-                sitkModel.AddCommand(sitk.sitkAbortEvent, lambda: self.cmdAbortEvent(sitkModel))
-                sitkModel.AddCommand(sitk.sitkEndEvent, lambda: self.cmdEndEvent())
-
-            except:
-                import sys
-                print "Unexpected error:", sys.exc_info()[0]
-
-            img = sitkModel.Execute(*inputImages)
-
+            self.main_queue_start()
+            self.execute_docker(modeldict, inputs, outputs)
             if not self.abort:
-                self.main_queue.put(lambda img=img: self.updateOutput(img))
+                self.updateOutput(outputs)
+                self.main_queue_stop()
+                self.cmdEndEvent()
 
         except Exception as e:
             msg = e.message
             self.abort = True
 
             self.yieldPythonGIL()
-            self.main_queue.put(lambda: qt.QMessageBox.critical(slicer.util.mainWindow(),
-                                                                "Exception during execution of {0}".format(
-                                                                    sitkModel.GetName()),
-                                                                msg))
+            print('print exception')
+            qt.QMessageBox.critical(slicer.util.mainWindow(),"Exception during execution of ", msg)
         finally:
-            # this model is persistent, remove commands
-            sitkModel.RemoveAllCommands()
-            self.main_queue.put(self.main_queue_stop)
-        '''
+            print('finally')
 
     def main_queue_start(self):
         """Begins monitoring of main_queue for callables"""
@@ -555,25 +507,26 @@ class DeepInferLogic:
             if not self.main_queue.empty() or self.main_queue_running:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
-    def updateOutput(self, img):
+    def updateOutput(self, outputs):
+      print("update output ...")
+      result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
+      output_node = outputs['OutputLabel']
+      output_node_name = output_node.GetName()
+      nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
+      sitk.WriteImage(result, nodeWriteAddress)
+      applicationLogic = slicer.app.applicationLogic()
+      selectionNode = applicationLogic.GetSelectionNode()
 
-        nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(self.outputNodeName)
-        sitk.WriteImage(img, nodeWriteAddress)
+      outputLabelMap = True
+      if outputLabelMap:
+          selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
+      else:
+          selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
 
-        node = slicer.util.getNode(self.outputNodeName)
+      applicationLogic.PropagateVolumeSelection(0)
+      applicationLogic.FitSliceToAll()
 
-        applicationLogic = slicer.app.applicationLogic()
-        selectionNode = applicationLogic.GetSelectionNode()
-
-        if self.outputLabelMap:
-            selectionNode.SetReferenceActiveLabelVolumeID(node.GetID())
-        else:
-            selectionNode.SetReferenceActiveVolumeID(node.GetID())
-
-        applicationLogic.PropagateVolumeSelection(0)
-        applicationLogic.FitSliceToAll()
-
-    def run(self, model, outputMRMLNode, outputLabelMap, *inputs):
+    def run(self, modeldict, inputs, outputs):
         """
         Run the actual algorithm
         """
@@ -585,31 +538,12 @@ class DeepInferLogic:
             sys.stderr.write("ModelLogic is already executing!")
             return
 
-        inputImages = []
-
-        '''
-        for i in inputs:
-            if i is None:
-                break
-
-            imgNodeName = i.GetName()
-
-            img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(imgNodeName))
-            inputImages.append(img)
-
-        '''
-        self.output = None
-
-        # check
-        self.outputNodeName = outputMRMLNode.GetName()
-        self.outputLabelMap = outputLabelMap
-
         self.abort = False
 
-        self.thread = threading.Thread(target=lambda f=model, i=inputImages: self.thread_doit(f, *inputImages))
+        self.thread = threading.Thread(target=self.thread_doit(modeldict, inputs, outputs))
 
-        self.main_queue_start()
-        self.thread.start()
+        # self.main_queue_start()
+        # self.thread.start()
 
 
 #
@@ -629,7 +563,7 @@ class ModelParameters(object):
         self.json = json
         self.model = None
         self.inputs = []
-        self.output = None
+        self.outputs = []
         self.prerun_callbacks = []
         self.outputLabelMap = False
         self.modeldict = dict()
@@ -657,105 +591,6 @@ class ModelParameters(object):
         self.outputs = dict()
         self.outputLabelMap = False
 
-        #
-        # input volume selectors
-        #
-        '''
-        if "inputs" in json:
-
-            # have named inputs
-            n = 0
-            for input in json["inputs"]:
-
-                w = self.createInputWidget(n, noneEnabled=("optional" in input and input["optional"]))
-
-                name = "Input Volume: "
-                if "name" in input:
-                    name = "Input {0}: ".format(input["name"])
-                name = name.replace("Image", "Volume")
-
-                print "adding {1}: {0}".format(name, n)
-                inputSelectorLabel = qt.QLabel(name)
-                self.widgets.append(inputSelectorLabel)
-
-                # add to layout after connection
-                parametersFormLayout.addRow(inputSelectorLabel, w)
-
-                self.inputs.append(w.currentNode())
-
-                n += 1
-
-                if "number_of_inputs" in json and json["number_of_inputs"] != 0:
-                    import sys
-                    sys.stderr.write("Expected \"number_of_inputs\" to be 0 not {0}!".format(json["number_of_inputs"]))
-
-        else:
-
-            for n in range(json["number_of_inputs"]):
-                w = self.createInputWidget(n)
-
-                inputSelectorLabel = qt.QLabel("Input Volume: ")
-                self.widgets.append(inputSelectorLabel)
-
-                # add to layout after connection
-                parametersFormLayout.addRow(inputSelectorLabel, w)
-
-                self.inputs.append(w.currentNode())
-
-                # end for each input
-
-        if json["template_code_filename"] == "KernelImageModel":
-            w = self.createVectorWidget("KernelRadius", "std::vector<uint32_t>")
-            self.widgets.append(w)
-            self.addWidgetWithToolTipAndLabel(w, {"briefdescriptionSet": "Radius of structuring element",
-                                                  "name": "KernelRadius"})
-
-            labels = ["Annulus",
-                      "Box",
-                      "Ball",
-                      "Cross"]
-            values = ["sitk.sitkAnnulus",
-                      "sitk.sitkBox",
-                      "sitk.sitkBall",
-                      "sitk.sitkCross"]
-            w = self.createEnumWidget("KernelType", labels, values)
-            self.addWidgetWithToolTipAndLabel(w, {"briefdescriptionSet": "Structuring element", "name": "Kernel Type"})
-
-        elif json["template_code_filename"] == "RegionGrowingImageModel" \
-                or json["template_code_filename"] == "FastMarchingImageModel":
-
-            name = "SeedList"
-            if (json["template_code_filename"] == "FastMarchingImageModel"):
-                name = "TrialPoints"
-
-            fiducialSelector = slicer.qMRMLNodeComboBox()
-            self.widgets.append(fiducialSelector)
-            fiducialSelector.nodeTypes = ("vtkMRMLMarkupsFiducialNode", "vtkMRMLAnnotationHierarchyNode")
-            fiducialSelector.addAttribute("vtkMRMLAnnotationHierarchyNode", "MainChildType",
-                                          "vtkMRMLAnnotationFiducialNode")
-            fiducialSelector.selectNodeUponCreation = True
-            fiducialSelector.addEnabled = True
-            fiducialSelector.removeEnabled = False
-            fiducialSelector.renameEnabled = True
-            fiducialSelector.noneEnabled = False
-            fiducialSelector.showHidden = False
-            fiducialSelector.showChildNodeTypes = True
-            fiducialSelector.setMRMLScene(slicer.mrmlScene)
-            fiducialSelector.setToolTip("Pick the Markups node for the seed list.")
-
-            fiducialSelector.connect("nodeActivated(vtkMRMLNode*)",
-                                     lambda node, name=name: self.onFiducialListNode(name, node))
-            self.prerun_callbacks.append(
-                lambda w=fiducialSelector, name=name: self.onFiducialListNode(name, w.currentNode()))
-
-            fiducialSelectorLabel = qt.QLabel("{0}: ".format(name))
-            self.widgets.append(fiducialSelectorLabel)
-
-            # todo set tool tip
-            # add to layout after connection
-            parametersFormLayout.addRow(fiducialSelectorLabel, fiducialSelector)
-
-        '''
         #
         # Iterate over the members in the JSON to generate a GUI
         #
@@ -921,53 +756,6 @@ class ModelParameters(object):
             if w:
                 self.addWidgetWithToolTipAndLabel(w, member)
 
-        # end for each member
-
-
-        #
-        # output volume selector
-        #
-        '''
-        outputSelectorLabel = qt.QLabel("Output Volume: ")
-        self.widgets.append(outputSelectorLabel)
-
-        self.outputSelector = slicer.qMRMLNodeComboBox()
-        self.widgets.append(self.outputSelector)
-        self.outputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
-        self.outputSelector.selectNodeUponCreation = True
-        self.outputSelector.addEnabled = True
-        self.outputSelector.removeEnabled = False
-        self.outputSelector.renameEnabled = True
-        self.outputSelector.noneEnabled = False
-        self.outputSelector.showHidden = False
-        self.outputSelector.showChildNodeTypes = False
-        self.outputSelector.baseName = json["name"] + " Output"
-        self.outputSelector.setMRMLScene(slicer.mrmlScene)
-        self.outputSelector.setToolTip("Pick the output to the algorithm.")
-
-        self.outputSelector.connect("nodeActivated(vtkMRMLNode*)", lambda node: self.onOutputSelect(node))
-
-        # add to layout after connection
-        parametersFormLayout.addRow(outputSelectorLabel, self.outputSelector)
-
-        self.output = self.outputSelector.currentNode()
-
-        #
-        # LabelMap toggle
-        #
-        outputLabelMapLabel = qt.QLabel("LabelMap: ")
-        self.widgets.append(outputLabelMapLabel)
-
-        self.outputLabelMapBox = qt.QCheckBox()
-        self.widgets.append(self.outputLabelMapBox)
-        self.outputLabelMapBox.setToolTip("Output Volume is set as a labelmap")
-        self.outputLabelMapBox.setChecked(self.outputLabelMap)
-        self.outputLabelMapBox.setDisabled(True)
-
-        self.outputLabelMapBox.connect("stateChanged(int)", lambda val: self.onOutputLabelMapChanged(bool(val)))
-        # add to layout after connection
-        parametersFormLayout.addRow(outputLabelMapLabel, self.outputLabelMapBox)
-        '''
 
     def createVolumeWidget(self, name, iotype, noneEnabled=False):
         volumeSelector = slicer.qMRMLNodeComboBox()
