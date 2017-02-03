@@ -491,6 +491,7 @@ class DeepInferLogic:
         print('-'*100)
         print(cmd)
 
+        #TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
             progress = 0
