@@ -1,14 +1,15 @@
-import os, sys
-import unittest
-from __main__ import vtk, qt, ctk, slicer
-from glob import glob
+import Queue
 import json
-from collections import OrderedDict
+import platform
+import os
 import re
 import subprocess
 import threading
-import Queue
+from collections import OrderedDict
+from glob import glob
 from time import sleep
+
+from __main__ import qt, ctk, slicer
 
 # To avoid the overhead of importing SimpleITK during application
 # startup, the import of SimpleITK is delayed until it is needed.
@@ -41,7 +42,6 @@ class DeepInfer:
             <br /><br />
             For detailed information about a specific model please consult the <a href=\"http://www.deepinfer.org/\">DeepInfer website</a>.
              """.format(parent.slicerWikiUrl, slicer.app.majorVersion, slicer.app.minorVersion)
-
 
         parent.acknowledgementText = """
         The developers would like to thank the support of the Surgical Planning Lab, the University of British Columbia, Slicer Community and the Insight Toolkit.
@@ -85,7 +85,7 @@ class DeepInferWidget:
             try:
                 fp = file(fname, "r")
                 j = json.load(fp, object_pairs_hook=OrderedDict)
-                #if j["name"] in dir(sitk):
+                # if j["name"] in dir(sitk):
                 if True:
                     self.jsonModels.append(j)
                 else:
@@ -97,6 +97,7 @@ class DeepInferWidget:
 
         self.modelParameters = None
         self.logic = None
+
 
     def onReload(self, moduleName="DeepInfer"):
         """Generic reload method for any scripted module.
@@ -125,6 +126,19 @@ class DeepInferWidget:
         # uncomment the following line for debug/development.
         self.layout.addWidget(reloadCollapsibleButton)
 
+        # Docker Settings Area
+        self.dockerGroupBox = ctk.ctkCollapsibleGroupBox()
+        self.dockerGroupBox.setTitle('Docker Settings')
+        self.layout.addWidget(self.dockerGroupBox)
+        dockerForm = qt.QFormLayout(self.dockerGroupBox)
+        self.dockerPath = ctk.ctkPathLineEdit()
+        # self.dockerPath.setMaximumWidth(300)
+        dockerForm.addRow("Docker Executable Path:", self.dockerPath)
+        if platform.system() == 'Darwin':
+            self.dockerPath.setCurrentPath('/usr/local/bin/docker')
+
+        # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
+
         # Model Repository Area
         self.modelRepoGroupBox = ctk.ctkCollapsibleGroupBox()
         self.modelRepoGroupBox.setTitle('Cloud Model Repository')
@@ -133,7 +147,6 @@ class DeepInferWidget:
         modelRepositoryExpdableArea = ctk.ctkExpandableWidget()
         modelRepoVBLayout1.addWidget(modelRepositoryExpdableArea)
         modelRepoVBLayout2 = qt.QVBoxLayout(modelRepositoryExpdableArea)
-        # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
         self.modelRepoTableW = qt.QTableWidget()
         self.modelRepositoryModel = qt.QStandardItemModel()
         self.modelRepositoryTableHeaderLabels = ['Model', 'Organ', 'Task', 'Status']
@@ -142,7 +155,7 @@ class DeepInferWidget:
         self.modelRepoTableW.setHorizontalHeaderLabels(self.modelRepositoryTableHeaderLabels)
         self.modelRepositoryTableWidgetHeader = self.modelRepoTableW.horizontalHeader()
         self.modelRepositoryTableWidgetHeader.setStretchLastSection(True)
-        #self.modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
+        # self.modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
         modelRepoVBLayout2.addWidget(self.modelRepoTableW)
         self.modelRepositoryTreeSelectionModel = self.modelRepoTableW.selectionModel()
         abstractItemView = qt.QAbstractItemView()
@@ -388,6 +401,10 @@ class DeepInferLogic:
         self.thread = threading.Thread()
         self.abort = False
 
+        self.deepInferTempPath = os.path.join(slicer.app.temporaryPath, 'deepinfer')
+        if not os.path.isdir(self.deepInferTempPath):
+            os.mkdir(self.deepInferTempPath)
+
     def __del__(self):
         if self.main_queue_running:
             self.main_queue_stop()
@@ -403,14 +420,12 @@ class DeepInferLogic:
             self.cmdAbortEvent()
 
     def cmdStartEvent(self):
-        # print "cmStartEvent"
         widget = slicer.modules.DeepInferWidget
         widget.onLogicEventStart()
         self.yieldPythonGIL()
 
     def cmdProgressEvent(self, progress):
         widget = slicer.modules.DeepInferWidget
-        # print('todo:add main_queue.put for progress here')
         widget.onLogicEventProgress(progress)
         self.yieldPythonGIL()
 
@@ -427,31 +442,51 @@ class DeepInferLogic:
         self.yieldPythonGIL()
 
     def execute_docker(self, modeldict, inputs, outputs):
-      self.cmdStartEvent()
-      for item in modeldict:
-          if modeldict[item]["iotype"] == "input":
-              if modeldict[item]['type'] == "volume":
-                  input_node_name = inputs[item].GetName()
-                  img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
-                  img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
-                  sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
+        widget = slicer.modules.DeepInferWidget
+        print(widget.dockerPath.currentPath)
+        self.cmdStartEvent()
+        for item in modeldict:
+            if modeldict[item]["iotype"] == "input":
+                if modeldict[item]['type'] == "volume":
+                    input_node_name = inputs[item].GetName()
+                    try:
+                        img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
+                        img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
+                        sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
+                    except Exception as e:
+                        print('exception on writing image')
+                        print(e.message)
 
-      cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
-                '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
-                'deepinfer/prostate-segmenter-cpu',
-                '-i', '/home/deepinfer/data/input.nrrd',
-                '-o', '/home/deepinfer/data/input_label.nrrd']
-      p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-      progress = 0
-      while True:
-          progress += 0.01
-          slicer.app.processEvents()
-          self.cmdCheckAbort(p)
-          self.cmdProgressEvent(progress)
-          line = p.stdout.readline()
-          if not line:
-              break
-          print(line)
+        '''
+        cmd = []
+        cmd.append(widget.dockerPath.currentPath)
+        cmd.extend(('run', '-t', 'v'))
+        cmd.append(self.deepInferTempPath + ':/home/deepinfer/data')
+        cmd.append(widget.modelParameters.dockerImageName)
+        print(cmd)
+        '''
+        cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
+               # cmd = ['docker', 'run', '-t', '-v',
+               '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
+               'deepinfer/prostate-segmenter-cpu',
+               '-i', '/home/deepinfer/data/input.nrrd',
+               '-o', '/home/deepinfer/data/input_label.nrrd']
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            progress = 0
+            while True:
+                progress += 0.15
+                slicer.app.processEvents()
+                self.cmdCheckAbort(p)
+                self.cmdProgressEvent(progress)
+                line = p.stdout.readline()
+                if not line:
+                    break
+                print(line)
+        except Exception as e:
+            msg = e.message
+            self.abort = True
+            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
     def thread_doit(self, modeldict, inputs, outputs):
         try:
@@ -468,7 +503,7 @@ class DeepInferLogic:
 
             self.yieldPythonGIL()
             print('print exception')
-            qt.QMessageBox.critical(slicer.util.mainWindow(),"Exception during execution of ", msg)
+            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
         finally:
             print('finally')
 
@@ -508,23 +543,23 @@ class DeepInferLogic:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
     def updateOutput(self, outputs):
-      print("update output ...")
-      result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
-      output_node = outputs['OutputLabel']
-      output_node_name = output_node.GetName()
-      nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
-      sitk.WriteImage(result, nodeWriteAddress)
-      applicationLogic = slicer.app.applicationLogic()
-      selectionNode = applicationLogic.GetSelectionNode()
+        print("update output ...")
+        result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
+        output_node = outputs['OutputLabel']
+        output_node_name = output_node.GetName()
+        nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
+        sitk.WriteImage(result, nodeWriteAddress)
+        applicationLogic = slicer.app.applicationLogic()
+        selectionNode = applicationLogic.GetSelectionNode()
 
-      outputLabelMap = True
-      if outputLabelMap:
-          selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
-      else:
-          selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
+        outputLabelMap = True
+        if outputLabelMap:
+            selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
+        else:
+            selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
 
-      applicationLogic.PropagateVolumeSelection(0)
-      applicationLogic.FitSliceToAll()
+        applicationLogic.PropagateVolumeSelection(0)
+        applicationLogic.FitSliceToAll()
 
     def run(self, modeldict, inputs, outputs):
         """
@@ -567,6 +602,7 @@ class ModelParameters(object):
         self.prerun_callbacks = []
         self.outputLabelMap = False
         self.modeldict = dict()
+        self.dockerImageName = ''
 
         self.outputSelector = None
         self.outputLabelMapBox = None
@@ -590,6 +626,7 @@ class ModelParameters(object):
         self.inputs = dict()
         self.outputs = dict()
         self.outputLabelMap = False
+        self.dockerImageName = json['docker_image_name']
 
         #
         # Iterate over the members in the JSON to generate a GUI
@@ -636,7 +673,7 @@ class ModelParameters(object):
                     self.widgets.append(toggle)
 
                     w2 = self.createVectorWidget(member["name"], t)
-                    self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                    self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
                     hlayout = qt.QHBoxLayout()
                     hlayout.addWidget(fiducialSelector)
@@ -656,7 +693,7 @@ class ModelParameters(object):
 
                 else:
                     w = self.createVectorWidget(member["name"], t)
-                    self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                    self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif "point_vec" in member:
 
@@ -684,17 +721,17 @@ class ModelParameters(object):
 
             elif "enum" in member:
                 w = self.createEnumWidget(member["name"], member["enum"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             elif member["name"].endswith("Direction") and "std::vector" in t:
                 # This member name is use for direction cosine matrix for image sources.
                 # We are going to ignore it
                 pass
             elif t == "volume":
                 w = self.createVolumeWidget(member["name"], member["iotype"], False)
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif t == "InterpolatorEnum":
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
                 labels = ["Nearest Neighbor",
                           "Linear",
                           "BSpline",
@@ -738,24 +775,23 @@ class ModelParameters(object):
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
                 w = self.createDoubleWidget(member["name"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             elif t == "bool":
                 w = self.createBoolWidget(member["name"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             elif t in ["uint8_t", "int8_t",
                        "uint16_t", "int16_t",
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
                 w = self.createIntWidget(member["name"], t)
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype":member["iotype"]}
+                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
 
             if w:
                 self.addWidgetWithToolTipAndLabel(w, member)
-
 
     def createVolumeWidget(self, name, iotype, noneEnabled=False):
         volumeSelector = slicer.qMRMLNodeComboBox()
@@ -774,7 +810,8 @@ class ModelParameters(object):
         volumeSelector.setToolTip("Pick the volume.")
 
         # connect and verify parameters
-        volumeSelector.connect("nodeActivated(vtkMRMLNode*)", lambda node, n=name, io=iotype: self.onVolumeSelect(node, n, io))
+        volumeSelector.connect("nodeActivated(vtkMRMLNode*)",
+                               lambda node, n=name, io=iotype: self.onVolumeSelect(node, n, io))
         if iotype == "input":
             self.inputs[name] = volumeSelector.currentNode()
         elif iotype == "output":
@@ -953,7 +990,7 @@ class ModelParameters(object):
             imgNodeName = self.inputs[0].GetName()
             img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(imgNodeName))
             coord = img.TransformPhysicalPointToIndex(coord)
-        # exec ('self.model.Set{0}(coord)'.format(name))
+            # exec ('self.model.Set{0}(coord)'.format(name))
 
     def onFiducialListNode(self, name, mrmlNode):
         annotationHierarchyNode = mrmlNode
