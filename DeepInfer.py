@@ -325,6 +325,21 @@ class DeepInferWidget:
 
     def onRefreshButton(self):
         print("onRefreshButton")
+        import urllib2
+        url = 'https://api.github.com/repos/deepinfer/Model-Repository/contents/'
+        response = urllib2.urlopen(url)
+        data = json.load(response)
+        for item in data:
+            if 'json' in item['name']:
+                print(item['name'])
+                url = item['url']
+                response = urllib2.urlopen(url)
+                data = json.load(response)
+                dl_url = data['download_url']
+                response = urllib2.urlopen(dl_url)
+                content = response.read()
+                print(content)
+
 
     def onRestoreDefaultsButton(self):
         self.onModelSelect(self.modelSelector.currentIndex)
@@ -443,30 +458,39 @@ class DeepInferLogic:
     def execute_docker(self, modeldict, inputs, outputs):
         widget = slicer.modules.DeepInferWidget
         self.cmdStartEvent()
+        inputDict = dict()
+        outputDict = dict()
         for item in modeldict:
             if modeldict[item]["iotype"] == "input":
-                if modeldict[item]['type'] == "volume":
+                if modeldict[item]["type"] == "volume":
                     input_node_name = inputs[item].GetName()
                     try:
                         img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
                         img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
-                        sitk.WriteImage(img, self.deepInferTempPath+'/input.nrrd')
+                        fileName = item + '.nrrd'
+                        inputDict[item] = fileName
+                        sitk.WriteImage(img, str(os.path.join(self.deepInferTempPath, fileName)))
                     except Exception as e:
                         print(e.message)
+            elif modeldict[item]["iotype"] == "output":
+                if modeldict[item]["type"] == "volume":
+                      fileName = item + '.nrrd'
+                      outputDict[item] = fileName
 
         cmd = []
         cmd.append(widget.dockerPath.currentPath)
-        cmd.extend(('run', '-t', 'v'))
+        cmd.extend(('run', '-t', '-v'))
         cmd.append(self.deepInferTempPath + ':/home/deepinfer/data')
         cmd.append(widget.modelParameters.dockerImageName)
+        for key in inputDict.keys():
+            cmd.append('--' + key)
+            cmd.append(os.path.join('/home/deepinfer/data/', inputDict[key]))
+        for key in outputDict.keys():
+            cmd.append('--' + key)
+            cmd.append(os.path.join('/home/deepinfer/data/', outputDict[key]))
+        print('-'*100)
         print(cmd)
-        cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
-               # cmd = ['docker', 'run', '-t', '-v',
-               #'/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
-               self.deepInferTempPath+':/home/deepinfer/data',
-               'deepinfer/prostate-segmenter-cpu',
-               '-i', '/home/deepinfer/data/input.nrrd',
-               '-o', '/home/deepinfer/data/input_label.nrrd']
+
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
             progress = 0
@@ -499,7 +523,6 @@ class DeepInferLogic:
 
             self.yieldPythonGIL()
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
-        #finally:
 
     def main_queue_start(self):
         """Begins monitoring of main_queue for callables"""
@@ -537,7 +560,7 @@ class DeepInferLogic:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
     def updateOutput(self, outputs):
-        result = sitk.ReadImage(self.deepInferTempPath+'/input_label.nrrd')
+        result = sitk.ReadImage(self.deepInferTempPath+'/OutputLabel.nrrd')
         #result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
         output_node = outputs['OutputLabel']
         output_node_name = output_node.GetName()
