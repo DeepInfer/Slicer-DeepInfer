@@ -4,6 +4,7 @@ import platform
 import os
 import re
 import subprocess
+import shutil
 import threading
 from collections import OrderedDict
 from glob import glob
@@ -286,7 +287,6 @@ class DeepInferWidget:
         print "\n".join(printStr)
 
     def onLogicRunStop(self):
-        print("onLogicRunStop")
         self.applyButton.setEnabled(True)
         self.restoreDefaultsButton.setEnabled(True)
         self.cancelButton.setEnabled(False)
@@ -294,7 +294,6 @@ class DeepInferWidget:
         self.progress.hide()
 
     def onLogicRunStart(self):
-        print("onLogicRunStart")
         self.applyButton.setEnabled(False)
         self.restoreDefaultsButton.setEnabled(False)
 
@@ -331,6 +330,7 @@ class DeepInferWidget:
         self.onModelSelect(self.modelSelector.currentIndex)
 
     def onApplyButton(self):
+        self.logic = DeepInferLogic()
         try:
 
             self.currentStatusLabel.text = "Starting"
@@ -338,7 +338,6 @@ class DeepInferWidget:
             self.logic = DeepInferLogic()
 
             self.printPythonCommand()
-            print("running...")
             self.logic.run(self.modelParameters.modeldict,
                            self.modelParameters.inputs,
                            self.modelParameters.outputs)
@@ -372,7 +371,6 @@ class DeepInferWidget:
         self.progress.setValue(1000)
 
     def onLogicEventAbort(self):
-        print("on logic event Abort")
         self.currentStatusLabel.text = "Aborted"
 
     def onLogicEventProgress(self, progress):
@@ -401,9 +399,12 @@ class DeepInferLogic:
         self.thread = threading.Thread()
         self.abort = False
 
-        self.deepInferTempPath = os.path.join(slicer.app.temporaryPath, 'deepinfer')
-        if not os.path.isdir(self.deepInferTempPath):
-            os.mkdir(self.deepInferTempPath)
+        from os.path import expanduser
+        home = expanduser("~")
+        self.deepInferTempPath = os.path.join(home, '.deepinfer')
+        if os.path.isdir(self.deepInferTempPath):
+            shutil.rmtree(self.deepInferTempPath)
+        os.mkdir(self.deepInferTempPath)
 
     def __del__(self):
         if self.main_queue_running:
@@ -430,20 +431,17 @@ class DeepInferLogic:
         self.yieldPythonGIL()
 
     def cmdAbortEvent(self):
-        print('cmdAbortEvent')
         widget = slicer.modules.DeepInferWidget
         widget.onLogicEventAbort()
         self.yieldPythonGIL()
 
     def cmdEndEvent(self):
-        print("cmEndEvent")
         widget = slicer.modules.DeepInferWidget
         widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
     def execute_docker(self, modeldict, inputs, outputs):
         widget = slicer.modules.DeepInferWidget
-        print(widget.dockerPath.currentPath)
         self.cmdStartEvent()
         for item in modeldict:
             if modeldict[item]["iotype"] == "input":
@@ -452,22 +450,20 @@ class DeepInferLogic:
                     try:
                         img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
                         img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
-                        sitk.WriteImage(img, '/Users/mehrtash/tmp/deepinfer/input.nrrd')
+                        sitk.WriteImage(img, self.deepInferTempPath+'/input.nrrd')
                     except Exception as e:
-                        print('exception on writing image')
                         print(e.message)
 
-        '''
         cmd = []
         cmd.append(widget.dockerPath.currentPath)
         cmd.extend(('run', '-t', 'v'))
         cmd.append(self.deepInferTempPath + ':/home/deepinfer/data')
         cmd.append(widget.modelParameters.dockerImageName)
         print(cmd)
-        '''
         cmd = ['/usr/local/bin/docker', 'run', '-t', '-v',
                # cmd = ['docker', 'run', '-t', '-v',
-               '/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
+               #'/Users/mehrtash/tmp/deepinfer:/home/deepinfer/data',
+               self.deepInferTempPath+':/home/deepinfer/data',
                'deepinfer/prostate-segmenter-cpu',
                '-i', '/home/deepinfer/data/input.nrrd',
                '-o', '/home/deepinfer/data/input_label.nrrd']
@@ -502,10 +498,8 @@ class DeepInferLogic:
             self.abort = True
 
             self.yieldPythonGIL()
-            print('print exception')
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
-        finally:
-            print('finally')
+        #finally:
 
     def main_queue_start(self):
         """Begins monitoring of main_queue for callables"""
@@ -543,8 +537,8 @@ class DeepInferLogic:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
     def updateOutput(self, outputs):
-        print("update output ...")
-        result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
+        result = sitk.ReadImage(self.deepInferTempPath+'/input_label.nrrd')
+        #result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
         output_node = outputs['OutputLabel']
         output_node_name = output_node.GetName()
         nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
@@ -566,7 +560,6 @@ class DeepInferLogic:
         Run the actual algorithm
         """
 
-        print("run")
 
         if self.thread.is_alive():
             import sys

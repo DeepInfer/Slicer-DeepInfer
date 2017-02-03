@@ -1,5 +1,6 @@
 {
   "name" : "Prostate CAD",
+  "docker_image_name": "deepinfer/prostate-cad-cpu",
   "template_code_filename" : "ImageFilter",
   "template_test_filename" : "ImageFilter",
   "number_of_inputs" : 1,
