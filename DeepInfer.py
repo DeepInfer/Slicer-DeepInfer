@@ -142,6 +142,7 @@ class DeepInferWidget:
 
         # Model Repository Area
         self.modelRepoGroupBox = ctk.ctkCollapsibleGroupBox()
+        self.modelRepoGroupBox.collapsed = True
         self.modelRepoGroupBox.setTitle('Cloud Model Repository')
         self.layout.addWidget(self.modelRepoGroupBox)
         modelRepoVBLayout1 = qt.QVBoxLayout(self.modelRepoGroupBox)
@@ -744,7 +745,7 @@ class ModelParameters(object):
                 # We are going to ignore it
                 pass
             elif t == "volume":
-                w = self.createVolumeWidget(member["name"], member["iotype"], False)
+                w = self.createVolumeWidget(member["name"], member["iotype"], member["voltype"], False)
                 self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif t == "InterpolatorEnum":
@@ -810,10 +811,15 @@ class ModelParameters(object):
             if w:
                 self.addWidgetWithToolTipAndLabel(w, member)
 
-    def createVolumeWidget(self, name, iotype, noneEnabled=False):
+    def createVolumeWidget(self, name, iotype, voltype, noneEnabled=False):
         volumeSelector = slicer.qMRMLNodeComboBox()
         self.widgets.append(volumeSelector)
-        volumeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
+        if voltype == 'ScalarVolume':
+            volumeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode",  ]
+        elif voltype == 'LabelMap':
+            volumeSelector.nodeTypes = ["vtkMRMLLabelMapVolumeNode", ]
+        else:
+            print('Voltype must be either ScalarVolume or LabelMap!')
         volumeSelector.selectNodeUponCreation = True
         if iotype == "input":
             volumeSelector.addEnabled = False

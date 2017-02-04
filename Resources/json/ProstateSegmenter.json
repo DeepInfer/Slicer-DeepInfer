@@ -12,6 +12,7 @@
       "name" : "InputVolume",
       "type" : "volume",
       "iotype" : "input",
+       "voltype" :"ScalarVolume",
       "default" : "std::vector<unsigned int>(3, 64)",
       "itk_type" : "typename FilterType::SizeType"
     },
@@ -19,6 +20,7 @@
       "name" : "OutputLabel",
       "type" : "volume",
      "iotype" : "output",
+     "voltype" :"LabelMap",
       "default" : "std::vector<unsigned int>(3, 64)",
       "itk_type" : "typename FilterType::SizeType"
     }
