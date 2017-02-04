@@ -125,7 +125,7 @@ class DeepInferWidget:
         reloadFormLayout.addWidget(self.reloadButton)
         self.reloadButton.connect('clicked()', self.onReload)
         # uncomment the following line for debug/development.
-        self.layout.addWidget(reloadCollapsibleButton)
+        # self.layout.addWidget(reloadCollapsibleButton)
 
         # Docker Settings Area
         self.dockerGroupBox = ctk.ctkCollapsibleGroupBox()
