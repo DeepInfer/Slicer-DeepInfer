@@ -1,30 +1,21 @@
-#-----------------------------------------------------------------------------
-set(MODULE_NAME DeepInfer)
+cmake_minimum_required(VERSION 2.8.9)
+
+project(DeepInfer)
 
 #-----------------------------------------------------------------------------
-set(MODULE_PYTHON_SCRIPTS
-  ${MODULE_NAME}.py
-  )
-
-set(MODULE_PYTHON_RESOURCES
-  Resources/Icons/${MODULE_NAME}.png
-  )
-
-#-----------------------------------------------------------------------------
-slicerMacroBuildScriptedModule(
-  NAME ${MODULE_NAME}
-  SCRIPTS ${MODULE_PYTHON_SCRIPTS}
-  RESOURCES ${MODULE_PYTHON_RESOURCES}
-  WITH_GENERIC_TESTS
-  )
+set(EXTENSION_HOMEPAGE "http://www.slicer.org/slicerWiki/index.php?title=Documentation/Nightly/Extensions/DeepInfer")
+set(EXTENSION_CATEGORY "Machine Learning")
+set(EXTENSION_CONTRIBUTORS "Alireza Mehrtash(UBC, BWH), Mehran Pesteie (UBC)")
+set(EXTENSION_DESCRIPTION "Deep learning deployment toolkit for medical imaging.")
+set(EXTENSION_ICONURL "https://www.slicer.org/w/images/a/a9/Deepinfer-256.png")
+# set(EXTENSION_SCREENSHOTURLS "http://www.slicer.org/slicerWiki/images/b/bf/TCIABrowser-screenshot.png")
 
 #-----------------------------------------------------------------------------
-if(BUILD_TESTING)
+find_package(Slicer REQUIRED)
+include(${Slicer_USE_FILE})
 
-  # Register the unittest subclass in the main script as a ctest.
-  # Note that the test will also be available at runtime.
-  slicer_add_python_unittest(SCRIPT ${MODULE_NAME}.py)
+#-----------------------------------------------------------------------------
+add_subdirectory(DeepInfer)
 
-  # Additional build-time testing
-  add_subdirectory(Testing)
-endif()
+#-----------------------------------------------------------------------------
+include(${Slicer_EXTENSION_CPACK})

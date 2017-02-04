@@ -7,6 +7,7 @@
 # Editor temporaries
 *.swp
 *~
+*.DS_Store
 
 # pycharm
 .idea
