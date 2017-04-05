@@ -18,6 +18,24 @@ sitk = None
 sitkUtils = None
 
 
+ICON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/Icons/'
+
+from os.path import expanduser
+home = expanduser("~")
+DEEPINFER_DIR = os.path.join(home, '.deepinfer')
+if not os.path.isdir(DEEPINFER_DIR):
+    os.mkdir(DEEPINFER_DIR)
+JSON_CLOUD_DIR = os.path.join(DEEPINFER_DIR, 'json', 'cloud')
+if not os.path.isdir(JSON_CLOUD_DIR):
+    os.makedirs(JSON_CLOUD_DIR)
+JSON_LOCAL_DIR = os.path.join(DEEPINFER_DIR, 'json', 'local')
+if not os.path.isdir(JSON_LOCAL_DIR):
+    os.makedirs(JSON_LOCAL_DIR)
+TMP_PATH = os.path.join(DEEPINFER_DIR, '.tmp')
+if os.path.isdir(TMP_PATH):
+    shutil.rmtree(TMP_PATH)
+os.mkdir(TMP_PATH)
+
 #
 # DeepInfer
 #
@@ -28,8 +46,7 @@ class DeepInfer:
         import inspect
         __file__ = inspect.getframeinfo(inspect.currentframe())[0]
 
-    ICON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/Icons/'
-    JSON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/json/'
+
 
     def __init__(self, parent):
         parent.title = "DeepInfer"
@@ -49,7 +66,7 @@ class DeepInfer:
         """
         self.parent = parent
 
-        parent.icon = qt.QIcon("%s/ITK.png" % self.ICON_DIR)
+        parent.icon = qt.QIcon("%s/ITK.png" % ICON_DIR)
 
 
 #
@@ -74,10 +91,9 @@ class DeepInferWidget:
             self.parent = parent
         self.layout = self.parent.layout()
         if not parent:
-            self.setup()
             self.parent.show()
 
-        jsonFiles = glob(DeepInfer.JSON_DIR + "*.json")
+        jsonFiles = glob(JSON_LOCAL_DIR + "/*.json")
         jsonFiles.sort(cmp=lambda x, y: cmp(os.path.basename(x), os.path.basename(y)))
 
         self.jsonModels = []
@@ -98,7 +114,6 @@ class DeepInferWidget:
 
         self.modelParameters = None
         self.logic = None
-
 
     def onReload(self, moduleName="DeepInfer"):
         """Generic reload method for any scripted module.
@@ -125,7 +140,7 @@ class DeepInferWidget:
         reloadFormLayout.addWidget(self.reloadButton)
         self.reloadButton.connect('clicked()', self.onReload)
         # uncomment the following line for debug/development.
-        # self.layout.addWidget(reloadCollapsibleButton)
+        self.layout.addWidget(reloadCollapsibleButton)
 
         # Docker Settings Area
         self.dockerGroupBox = ctk.ctkCollapsibleGroupBox()
@@ -137,32 +152,36 @@ class DeepInferWidget:
         dockerForm.addRow("Docker Executable Path:", self.dockerPath)
         if platform.system() == 'Darwin':
             self.dockerPath.setCurrentPath('/usr/local/bin/docker')
+        if platform.system() == 'Linux':
+            self.dockerPath.setCurrentPath('/usr/bin/docker')
 
         # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
 
         # Model Repository Area
         self.modelRepoGroupBox = ctk.ctkCollapsibleGroupBox()
-        self.modelRepoGroupBox.collapsed = True
+        # self.modelRepoGroupBox.collapsed = True
         self.modelRepoGroupBox.setTitle('Cloud Model Repository')
         self.layout.addWidget(self.modelRepoGroupBox)
         modelRepoVBLayout1 = qt.QVBoxLayout(self.modelRepoGroupBox)
         modelRepositoryExpdableArea = ctk.ctkExpandableWidget()
         modelRepoVBLayout1.addWidget(modelRepositoryExpdableArea)
         modelRepoVBLayout2 = qt.QVBoxLayout(modelRepositoryExpdableArea)
-        self.modelRepoTableW = qt.QTableWidget()
+        self.modelRegistryTable = qt.QTableWidget()
+        self.modelRegistryTable.visible = False
         self.modelRepositoryModel = qt.QStandardItemModel()
         self.modelRepositoryTableHeaderLabels = ['Model', 'Organ', 'Task', 'Status']
-        self.modelRepoTableW.setColumnCount(4)
-        self.modelRepoTableW.sortingEnabled = True
-        self.modelRepoTableW.setHorizontalHeaderLabels(self.modelRepositoryTableHeaderLabels)
-        self.modelRepositoryTableWidgetHeader = self.modelRepoTableW.horizontalHeader()
+        self.modelRegistryTable.setColumnCount(4)
+        self.modelRegistryTable.setSelectionMode(qt.QAbstractItemView.SingleSelection)
+        self.modelRegistryTable.sortingEnabled = True
+        self.modelRegistryTable.setHorizontalHeaderLabels(self.modelRepositoryTableHeaderLabels)
+        self.modelRepositoryTableWidgetHeader = self.modelRegistryTable.horizontalHeader()
         self.modelRepositoryTableWidgetHeader.setStretchLastSection(True)
         # self.modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
-        modelRepoVBLayout2.addWidget(self.modelRepoTableW)
-        self.modelRepositoryTreeSelectionModel = self.modelRepoTableW.selectionModel()
+        modelRepoVBLayout2.addWidget(self.modelRegistryTable)
+        self.modelRepositoryTreeSelectionModel = self.modelRegistryTable.selectionModel()
         abstractItemView = qt.QAbstractItemView()
-        self.modelRepoTableW.setSelectionBehavior(abstractItemView.SelectRows)
-        verticalheader = self.modelRepoTableW.verticalHeader()
+        self.modelRegistryTable.setSelectionBehavior(abstractItemView.SelectRows)
+        verticalheader = self.modelRegistryTable.verticalHeader()
         verticalheader.setDefaultSectionSize(20)
         modelRepoVBLayout1.setSpacing(0)
         modelRepoVBLayout2.setSpacing(0)
@@ -171,11 +190,16 @@ class DeepInferWidget:
         refreshWidget = qt.QWidget()
         modelRepoVBLayout2.addWidget(refreshWidget)
         hBoXLayout = qt.QHBoxLayout(refreshWidget)
-        hBoXLayout.setSpacing(0)
-        hBoXLayout.setMargin(0)
-        refreshButton = qt.QPushButton('refresh')
+        # hBoXLayout.setSpacing(0)
+        # hBoXLayout.setMargin(0)
+        self.connectButton = qt.QPushButton('Connect')
+        self.downloadButton = qt.QPushButton('Download')
+        self.downloadButton.enabled = False
+        self.downloadButton.visible = False
         hBoXLayout.addStretch(1)
-        hBoXLayout.addWidget(refreshButton)
+        hBoXLayout.addWidget(self.connectButton)
+        hBoXLayout.addWidget(self.downloadButton)
+        self.populateModelRegistryTable()
 
         #
         # Local Models Area
@@ -259,16 +283,27 @@ class DeepInferWidget:
         self.layout.addLayout(hlayout)
 
         # connections
-        refreshButton.connect('clicked(bool)', self.onRefreshButton)
+        self.connectButton.connect('clicked(bool)', self.onConnectButton)
+        self.downloadButton.connect('clicked(bool)', self.onDownloadButton)
         self.restoreDefaultsButton.connect('clicked(bool)', self.onRestoreDefaultsButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
         self.cancelButton.connect('clicked(bool)', self.onCancelButton)
+        self.modelRegistryTable.connect('itemSelectionChanged()', self.onCloudModelSelect)
 
         # Initlial Selection
         self.modelSelector.currentIndexChanged(self.modelSelector.currentIndex)
 
     def cleanup(self):
         pass
+
+    def onCloudModelSelect(self):
+        self.downloadButton.enabled = False
+        # print("on cloud model select!")
+        # print(self.modelNamesTableItems)
+        for item in self.modelTableItems.keys():
+            if item.isSelected():
+                self.downloadButton.enabled = True
+                self.selectedModelPath = self.modelTableItems[item]
 
     def printPythonCommand(self):
         # self.modelParameters.prerun()  # Do this first!
@@ -285,7 +320,7 @@ class DeepInferWidget:
                     value = eval("currentModel.{0}()".format(key))
                     printStr.append('myModel.{0}({1})'.format(setAttr, value))
 
-        print "\n".join(printStr)
+        print("\n".join(printStr))
 
     def onLogicRunStop(self):
         self.applyButton.setEnabled(True)
@@ -324,23 +359,94 @@ class DeepInferWidget:
         else:
             self.modelSelector.setToolTip("")
 
-    def onRefreshButton(self):
-        print("onRefreshButton")
-        import urllib2
-        url = 'https://api.github.com/repos/deepinfer/Model-Repository/contents/'
-        response = urllib2.urlopen(url)
-        data = json.load(response)
-        for item in data:
-            if 'json' in item['name']:
-                print(item['name'])
-                url = item['url']
-                response = urllib2.urlopen(url)
-                data = json.load(response)
-                dl_url = data['download_url']
-                response = urllib2.urlopen(dl_url)
-                content = response.read()
-                print(content)
+    def onConnectButton(self):
+        try:
+            self.modelRegistryTable.visible = True
+            self.downloadButton.visible = True
+            self.connectButton.visible = False
+            self.connectButton.enabled = False
+            # print(self.connectButton.enabled)
+            import urllib2
+            url = 'https://api.github.com/repos/deepinfer/Model-Registry/contents/'
+            response = urllib2.urlopen(url)
+            data = json.load(response)
+            for item in data:
+                if 'json' in item['name']:
+                    # print(item['name'])
+                    url = item['url']
+                    response = urllib2.urlopen(url)
+                    data = json.load(response)
+                    dl_url = data['download_url']
+                    print("downloading: {}...".format(dl_url))
+                    response = urllib2.urlopen(dl_url)
+                    content = response.read()
+                    outputPath = os.path.join(JSON_CLOUD_DIR, dl_url.split('/')[-1])
+                    with open(outputPath, 'w') as f:
+                        f.write(content)
+            self.populateModelRegistryTable()
+        except Exception as e:
+            print("Exception occured: {}".format(e))
+            self.connectButton.enabled = True
+            self.modelRegistryTable.visible = False
+            self.downloadButton.visible = False
+            self.connectButton.visible = True
+        self.connectButton.enabled = True
 
+    def onDownloadButton(self):
+        with open(self.selectedModelPath) as json_data:
+            model = json.load(json_data)
+        size = model['docker']['size']
+        resoponse = self.Question("The size of the selected image to download is {}. Are you sure you want to proceed?".format(size),
+                      title="Download", parent=None)
+        if resoponse:
+            cmd = []
+            cmd.append(self.dockerPath.currentPath)
+            cmd.append('pull')
+            cmd.append(model['docker']['dockerhub_repository'] + '@' + model['docker']['digest'])
+            print(cmd)
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            progress = 0
+            try:
+                while True:
+                    slicer.app.processEvents()
+                    line = p.stdout.readline()
+                    if not line:
+                        break
+                    print(line)
+            except Exception as e:
+                print("Exception: {}".format(e))
+            print("yes")
+        else:
+            print("no")
+
+    def Question(self, text, title="", parent=None):
+        return qt.QMessageBox.question(parent, title, text,
+                                   qt.QMessageBox.Yes, qt.QMessageBox.No) == qt.QMessageBox.Yes
+
+    def populateModelRegistryTable(self):
+        self.modelTableItems = dict()
+        # print("populate Model Registry Table")
+        model_files = glob(JSON_CLOUD_DIR+'/*.json')
+        self.modelRegistryTable.setRowCount(len(model_files))
+        n = 0
+        model_files = [os.path.join(JSON_CLOUD_DIR, model_file) for model_file in model_files]
+        for model_file in model_files:
+            with open(model_file) as json_data:
+                model = json.load(json_data)
+            keys = model.keys()
+            for key in keys:
+                if key == 'name':
+                    nameTableItem = qt.QTableWidgetItem(str(model['name']))
+                    self.modelTableItems[nameTableItem] = model_file
+                    self.modelRegistryTable.setItem(n, 0, nameTableItem)
+                    # modelName.setIcon(self.reportIcon)
+                if key == 'organ':
+                    organ = qt.QTableWidgetItem(str(model['organ']))
+                    self.modelRegistryTable.setItem(n, 1, organ)
+                if key == 'task':
+                    task = qt.QTableWidgetItem(str(model['task']))
+                    self.modelRegistryTable.setItem(n, 2, task)
+            n += 1
 
     def onRestoreDefaultsButton(self):
         self.onModelSelect(self.modelSelector.currentIndex)
@@ -351,7 +457,6 @@ class DeepInferWidget:
 
             self.currentStatusLabel.text = "Starting"
             self.modelParameters.prerun()
-            self.logic = DeepInferLogic()
 
             self.printPythonCommand()
             self.logic.run(self.modelParameters.modeldict,
@@ -394,7 +499,7 @@ class DeepInferWidget:
         self.progress.setValue(progress * 1000)
 
     def onLogicEventIteration(self, nIter):
-        print "Iteration ", nIter
+        print("Iteration ", nIter)
 
 
 #
@@ -415,12 +520,6 @@ class DeepInferLogic:
         self.thread = threading.Thread()
         self.abort = False
 
-        from os.path import expanduser
-        home = expanduser("~")
-        self.deepInferTempPath = os.path.join(home, '.deepinfer')
-        if os.path.isdir(self.deepInferTempPath):
-            shutil.rmtree(self.deepInferTempPath)
-        os.mkdir(self.deepInferTempPath)
 
     def __del__(self):
         if self.main_queue_running:
@@ -470,7 +569,7 @@ class DeepInferLogic:
                         img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
                         fileName = item + '.nrrd'
                         inputDict[item] = fileName
-                        sitk.WriteImage(img, str(os.path.join(self.deepInferTempPath, fileName)))
+                        sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
                     except Exception as e:
                         print(e.message)
             elif modeldict[item]["iotype"] == "output":
@@ -481,7 +580,7 @@ class DeepInferLogic:
         cmd = []
         cmd.append(widget.dockerPath.currentPath)
         cmd.extend(('run', '-t', '-v'))
-        cmd.append(self.deepInferTempPath + ':/home/deepinfer/data')
+        cmd.append(TMP_PATH + ':/home/deepinfer/data')
         cmd.append(widget.modelParameters.dockerImageName)
         for key in inputDict.keys():
             cmd.append('--' + key)
@@ -493,22 +592,24 @@ class DeepInferLogic:
         print(cmd)
 
         #TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
-        try:
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            progress = 0
-            while True:
-                progress += 0.15
-                slicer.app.processEvents()
-                self.cmdCheckAbort(p)
-                self.cmdProgressEvent(progress)
-                line = p.stdout.readline()
-                if not line:
-                    break
-                print(line)
+        #try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        progress = 0
+        while True:
+            progress += 0.15
+            slicer.app.processEvents()
+            self.cmdCheckAbort(p)
+            self.cmdProgressEvent(progress)
+            line = p.stdout.readline()
+            if not line:
+                break
+            print(line)
+        '''
         except Exception as e:
             msg = e.message
             self.abort = True
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
+        '''
 
     def thread_doit(self, modeldict, inputs, outputs):
         try:
@@ -562,7 +663,7 @@ class DeepInferLogic:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
     def updateOutput(self, outputs):
-        result = sitk.ReadImage(self.deepInferTempPath+'/OutputLabel.nrrd')
+        result = sitk.ReadImage(TMP_PATH+'/OutputLabel.nrrd')
         #result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
         output_node = outputs['OutputLabel']
         output_node_name = output_node.GetName()
@@ -683,7 +784,7 @@ class ModelParameters(object):
                     fiducialSelectorLabel = qt.QLabel("{0}: ".format(member["name"]))
                     self.widgets.append(fiducialSelectorLabel)
 
-                    icon = qt.QIcon(DeepInfer.ICON_DIR + "Fiducials.png")
+                    icon = qt.QIcon(ICON_DIR + "Fiducials.png")
 
                     toggle = qt.QPushButton(icon, "")
                     toggle.setCheckable(True)
