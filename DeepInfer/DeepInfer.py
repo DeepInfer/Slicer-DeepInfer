@@ -22,15 +22,20 @@ ICON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/Icons/'
 
 from os.path import expanduser
 home = expanduser("~")
+
 DEEPINFER_DIR = os.path.join(home, '.deepinfer')
 if not os.path.isdir(DEEPINFER_DIR):
     os.mkdir(DEEPINFER_DIR)
+
 JSON_CLOUD_DIR = os.path.join(DEEPINFER_DIR, 'json', 'cloud')
-if not os.path.isdir(JSON_CLOUD_DIR):
-    os.makedirs(JSON_CLOUD_DIR)
+if os.path.isdir(JSON_CLOUD_DIR):
+    shutil.rmtree(JSON_CLOUD_DIR)
+os.makedirs(JSON_CLOUD_DIR)
+
 JSON_LOCAL_DIR = os.path.join(DEEPINFER_DIR, 'json', 'local')
 if not os.path.isdir(JSON_LOCAL_DIR):
     os.makedirs(JSON_LOCAL_DIR)
+
 TMP_PATH = os.path.join(DEEPINFER_DIR, '.tmp')
 if os.path.isdir(TMP_PATH):
     shutil.rmtree(TMP_PATH)
@@ -93,25 +98,6 @@ class DeepInferWidget:
         if not parent:
             self.parent.show()
 
-        jsonFiles = glob(JSON_LOCAL_DIR + "/*.json")
-        jsonFiles.sort(cmp=lambda x, y: cmp(os.path.basename(x), os.path.basename(y)))
-
-        self.jsonModels = []
-
-        for fname in jsonFiles:
-            try:
-                fp = file(fname, "r")
-                j = json.load(fp, object_pairs_hook=OrderedDict)
-                # if j["name"] in dir(sitk):
-                if True:
-                    self.jsonModels.append(j)
-                else:
-                    import sys
-                    sys.stderr.write("Unknown SimpleITK class \"{0}\".\n".format(j["name"]))
-            except Exception as e:
-                import sys
-                sys.stderr.write("Error while reading \"{0}\". Exception: {1}\n".format(fname, e))
-
         self.modelParameters = None
         self.logic = None
 
@@ -128,6 +114,7 @@ class DeepInferWidget:
         # Reload and Test area
         #
         reloadCollapsibleButton = ctk.ctkCollapsibleButton()
+        reloadCollapsibleButton.collapsed = True
         reloadCollapsibleButton.text = "Reload && Test"
         reloadFormLayout = qt.QFormLayout(reloadCollapsibleButton)
 
@@ -178,6 +165,13 @@ class DeepInferWidget:
         self.modelRepositoryTableWidgetHeader.setStretchLastSection(True)
         # self.modelRepositoryTableWidgetHeader.setResizeMode(qt.QHeaderView.Stretch)
         modelRepoVBLayout2.addWidget(self.modelRegistryTable)
+        #
+        self.progressDownload = qt.QProgressBar()
+        self.progressDownload.setRange(0, 100)
+        self.progressDownload.setValue(0)
+        modelRepoVBLayout2.addWidget(self.progressDownload)
+        self.progressDownload.hide()
+        #
         self.modelRepositoryTreeSelectionModel = self.modelRegistryTable.selectionModel()
         abstractItemView = qt.QAbstractItemView()
         self.modelRegistryTable.setSelectionBehavior(abstractItemView.SelectRows)
@@ -201,6 +195,26 @@ class DeepInferWidget:
         hBoXLayout.addWidget(self.downloadButton)
         self.populateModelRegistryTable()
 
+
+
+        #
+        # Cancel/Apply Row
+        #
+        self.restoreDefaultsButton = qt.QPushButton("Restore Defaults")
+        self.restoreDefaultsButton.toolTip = "Restore the default parameters."
+        self.restoreDefaultsButton.enabled = True
+
+        self.cancelButton = qt.QPushButton("Cancel")
+        self.cancelButton.toolTip = "Abort the algorithm."
+        self.cancelButton.enabled = False
+
+        self.applyButton = qt.QPushButton("Apply")
+        self.applyButton.toolTip = "Run the algorithm."
+        self.applyButton.enabled = True
+
+        hlayout = qt.QHBoxLayout()
+
+
         #
         # Local Models Area
         #
@@ -218,11 +232,7 @@ class DeepInferWidget:
         # model selector
         self.modelSelector = qt.QComboBox()
         modelsFormLayout.addRow("Model:", self.modelSelector)
-
-        # add all the models listed in the json files
-        for idx, j in enumerate(self.jsonModels):
-            name = j["name"]
-            self.modelSelector.addItem(name, idx)
+        self.populateLocalModels()
 
         # connections
         self.modelSelector.connect('currentIndexChanged(int)', self.onModelSelect)
@@ -295,6 +305,48 @@ class DeepInferWidget:
 
     def cleanup(self):
         pass
+
+    def getAllDigests(self):
+        cmd = []
+        cmd.append(self.dockerPath.currentPath)
+        cmd.append('images')
+        cmd.append('--digests')
+        # print(cmd)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        digest_index = 2
+        digests = []
+        try:
+            while True:
+                slicer.app.processEvents()
+                line = p.stdout.readline()
+                if not line:
+                    break
+                line = line.split()
+                if 'DIGEST' in line:
+                    digest_index = line.index('DIGEST')
+                else:
+                    digests.append(line[digest_index])
+        except Exception as e:
+            print("Exception: {}".format(e))
+        return digests
+
+    def populateLocalModels(self):
+        digests = self.getAllDigests()
+        jsonFiles = glob(JSON_LOCAL_DIR + "/*.json")
+        jsonFiles.sort(cmp=lambda x, y: cmp(os.path.basename(x), os.path.basename(y)))
+        self.jsonModels = []
+        for fname in jsonFiles:
+            fp = file(fname, "r")
+            j = json.load(fp, object_pairs_hook=OrderedDict)
+            if j['docker']['digest'] in digests:
+                self.jsonModels.append(j)
+            else:
+                os.remove(fname)
+        # add all the models listed in the json files
+
+        for idx, j in enumerate(self.jsonModels):
+            name = j["name"]
+            self.modelSelector.addItem(name, idx)
 
     def onCloudModelSelect(self):
         self.downloadButton.enabled = False
@@ -403,21 +455,37 @@ class DeepInferWidget:
             cmd.append(self.dockerPath.currentPath)
             cmd.append('pull')
             cmd.append(model['docker']['dockerhub_repository'] + '@' + model['docker']['digest'])
-            print(cmd)
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            progress = 0
+            print(cmd)
+            parts = dict()
             try:
                 while True:
+                    self.progressDownload.show()
                     slicer.app.processEvents()
                     line = p.stdout.readline()
                     if not line:
                         break
+                    line = line.rstrip()
                     print(line)
+                    part = line.split(':')[0]
+                    if len(part) == 12:
+                        parts[part] = line.split(':')[1]
+                    if parts.keys():
+                        print('-'*100)
+                        print(parts)
+                        n_parts = len(parts.keys())
+                        n_completed = len([status for status in parts.values() if status == ' Pull complete'])
+                        self.progressDownload.setValue(int((100*n_completed)/n_parts))
+
             except Exception as e:
                 print("Exception: {}".format(e))
-            print("yes")
+            print(parts)
+            self.progressDownload.setValue(0)
+            self.progressDownload.hide()
+            shutil.copy(self.selectedModelPath, os.path.join(JSON_LOCAL_DIR, os.path.basename(self.selectedModelPath)))
+            self.populateLocalModels()
         else:
-            print("no")
+            print("Download was canceled!")
 
     def Question(self, text, title="", parent=None):
         return qt.QMessageBox.question(parent, title, text,
@@ -439,7 +507,6 @@ class DeepInferWidget:
                     nameTableItem = qt.QTableWidgetItem(str(model['name']))
                     self.modelTableItems[nameTableItem] = model_file
                     self.modelRegistryTable.setItem(n, 0, nameTableItem)
-                    # modelName.setIcon(self.reportIcon)
                 if key == 'organ':
                     organ = qt.QTableWidgetItem(str(model['organ']))
                     self.modelRegistryTable.setItem(n, 1, organ)
@@ -500,7 +567,6 @@ class DeepInferWidget:
 
     def onLogicEventIteration(self, nIter):
         print("Iteration ", nIter)
-
 
 #
 # DeepInferLogic
@@ -592,24 +658,22 @@ class DeepInferLogic:
         print(cmd)
 
         #TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
-        #try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        progress = 0
-        while True:
-            progress += 0.15
-            slicer.app.processEvents()
-            self.cmdCheckAbort(p)
-            self.cmdProgressEvent(progress)
-            line = p.stdout.readline()
-            if not line:
-                break
-            print(line)
-        '''
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            progress = 0
+            while True:
+                progress += 0.15
+                slicer.app.processEvents()
+                self.cmdCheckAbort(p)
+                self.cmdProgressEvent(progress)
+                line = p.stdout.readline()
+                if not line:
+                    break
+                print(line)
         except Exception as e:
             msg = e.message
             self.abort = True
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
-        '''
 
     def thread_doit(self, modeldict, inputs, outputs):
         try:
@@ -623,7 +687,6 @@ class DeepInferLogic:
         except Exception as e:
             msg = e.message
             self.abort = True
-
             self.yieldPythonGIL()
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
@@ -745,7 +808,7 @@ class ModelParameters(object):
         self.inputs = dict()
         self.outputs = dict()
         self.outputLabelMap = False
-        self.dockerImageName = json['docker_image_name']
+        self.dockerImageName = json['docker']['dockerhub_repository']
 
         #
         # Iterate over the members in the JSON to generate a GUI
