@@ -246,7 +246,6 @@ class DeepInferWidget:
 
         # Layout within the dummy collapsible button
         parametersFormLayout = qt.QFormLayout(parametersCollapsibleButton)
-
         self.modelParameters = ModelParameters(parametersCollapsibleButton)
 
         # Add vertical spacer
@@ -357,8 +356,9 @@ class DeepInferWidget:
                 self.downloadButton.enabled = True
                 self.selectedModelPath = self.modelTableItems[item]
 
+    '''
     def printPythonCommand(self):
-        # self.modelParameters.prerun()  # Do this first!
+        self.modelParameters.prerun()  # Do this first!
         printStr = []
         currentModel = self.modelParameters.model
         varName = currentModel.__class__.__name__
@@ -373,6 +373,7 @@ class DeepInferWidget:
                     printStr.append('myModel.{0}({1})'.format(setAttr, value))
 
         print("\n".join(printStr))
+    '''
 
     def onLogicRunStop(self):
         self.applyButton.setEnabled(True)
@@ -397,12 +398,13 @@ class DeepInferWidget:
                 self.modelSelector.addItem(j["name"], idx)
 
     def onModelSelect(self, selectorIndex):
+        print("on model select")
         self.modelParameters.destroy()
         if selectorIndex < 0:
             return
         jsonIndex = self.modelSelector.itemData(selectorIndex)
-        json = self.jsonModels[jsonIndex]
-        self.modelParameters.create(json)
+        json_model = self.jsonModels[jsonIndex]
+        self.modelParameters.create(json_model)
 
         if "briefdescription" in self.jsonModels[jsonIndex]:
             tip = self.jsonModels[jsonIndex]["briefdescription"]
@@ -417,7 +419,6 @@ class DeepInferWidget:
             self.downloadButton.visible = True
             self.connectButton.visible = False
             self.connectButton.enabled = False
-            # print(self.connectButton.enabled)
             import urllib2
             url = 'https://api.github.com/repos/deepinfer/Model-Registry/contents/'
             response = urllib2.urlopen(url)
@@ -519,29 +520,27 @@ class DeepInferWidget:
         self.onModelSelect(self.modelSelector.currentIndex)
 
     def onApplyButton(self):
+        print('onApply')
         self.logic = DeepInferLogic()
-        try:
+        # try:
+        self.currentStatusLabel.text = "Starting"
+        self.modelParameters.prerun()
+        self.logic.run(self.modelParameters.modeldict,
+                       self.modelParameters.inputs,
+                       self.modelParameters.outputs)
 
-            self.currentStatusLabel.text = "Starting"
-            self.modelParameters.prerun()
-
-            self.printPythonCommand()
-            self.logic.run(self.modelParameters.modeldict,
-                           self.modelParameters.inputs,
-                           self.modelParameters.outputs)
-
+        '''
         except:
             self.currentStatusLabel.text = "Exception"
-
+            slicer.modules.DeepInferWidget.applyButton.enabled = True
             import sys
             msg = sys.exc_info()[0]
-
             # if there was an exception during start-up make sure to finish
             self.onLogicRunStop()
-
             qt.QMessageBox.critical(slicer.util.mainWindow(),
-                                    "Exception before execution of {0}".format(self.modelParameters.model.GetName()),
+                                    "Exception before execution: {0} ".format(self.modelParameters.dockerImageName),
                                     msg)
+        '''
 
     def onCancelButton(self):
         self.currentStatusLabel.text = "Aborting"
@@ -621,28 +620,35 @@ class DeepInferLogic:
         widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
-    def execute_docker(self, modeldict, inputs, outputs):
+    def execute_docker(self, modeldict, inputs):
+        print('execute docker')
+        print("model dict: ", modeldict)
+        print("inputs:", inputs)
+        print("outputs:", inputs)
         widget = slicer.modules.DeepInferWidget
         self.cmdStartEvent()
         inputDict = dict()
         outputDict = dict()
         for item in modeldict:
+            print(item)
             if modeldict[item]["iotype"] == "input":
                 if modeldict[item]["type"] == "volume":
+                    print(inputs[item])
                     input_node_name = inputs[item].GetName()
-                    try:
-                        img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
-                        img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
-                        fileName = item + '.nrrd'
-                        inputDict[item] = fileName
-                        sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
-                    except Exception as e:
-                        print(e.message)
+                    #try:
+                    img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
+                    img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
+                    fileName = item + '.nrrd'
+                    inputDict[item] = fileName
+                    sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
+                    #except Exception as e:
+                    #    print(e.message)
             elif modeldict[item]["iotype"] == "output":
                 if modeldict[item]["type"] == "volume":
                       fileName = item + '.nrrd'
                       outputDict[item] = fileName
 
+        print('cmd')
         cmd = []
         cmd.append(widget.dockerPath.currentPath)
         cmd.extend(('run', '-t', '-v'))
@@ -658,38 +664,41 @@ class DeepInferLogic:
         print(cmd)
 
         #TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
-        try:
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            progress = 0
-            while True:
-                progress += 0.15
-                slicer.app.processEvents()
-                self.cmdCheckAbort(p)
-                self.cmdProgressEvent(progress)
-                line = p.stdout.readline()
-                if not line:
-                    break
-                print(line)
-        except Exception as e:
-            msg = e.message
-            self.abort = True
-            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
+        #try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        progress = 0
+        while True:
+            progress += 0.15
+            slicer.app.processEvents()
+            self.cmdCheckAbort(p)
+            self.cmdProgressEvent(progress)
+            line = p.stdout.readline()
+            if not line:
+                break
+            print(line)
+        #except Exception as e:
+        #    msg = e.message
+        #    self.abort = True
+        #    qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
     def thread_doit(self, modeldict, inputs, outputs):
-        try:
-            self.main_queue_start()
-            self.execute_docker(modeldict, inputs, outputs)
-            if not self.abort:
-                self.updateOutput(outputs)
-                self.main_queue_stop()
-                self.cmdEndEvent()
+        #try:
+        self.main_queue_start()
+        self.execute_docker(modeldict, inputs)
+        if not self.abort:
+            self.updateOutput(outputs)
+            self.main_queue_stop()
+            self.cmdEndEvent()
 
+        '''
         except Exception as e:
             msg = e.message
+            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
+            slicer.modules.DeepInferWidget.applyButton.enabled = True
+            slicer.modules.DeepInferWidget.progress.hide = True
             self.abort = True
             self.yieldPythonGIL()
-            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
-
+        '''
     def main_queue_start(self):
         """Begins monitoring of main_queue for callables"""
         self.main_queue_running = True
@@ -727,7 +736,6 @@ class DeepInferLogic:
 
     def updateOutput(self, outputs):
         result = sitk.ReadImage(TMP_PATH+'/OutputLabel.nrrd')
-        #result = sitk.ReadImage('/Users/mehrtash/tmp/deepinfer/input_label.nrrd')
         output_node = outputs['OutputLabel']
         output_node_name = output_node.GetName()
         nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
@@ -748,19 +756,12 @@ class DeepInferLogic:
         """
         Run the actual algorithm
         """
-
-
         if self.thread.is_alive():
             import sys
             sys.stderr.write("ModelLogic is already executing!")
             return
-
         self.abort = False
-
         self.thread = threading.Thread(target=self.thread_doit(modeldict, inputs, outputs))
-
-        # self.main_queue_start()
-        # self.thread.start()
 
 
 #
@@ -777,7 +778,7 @@ class ModelParameters(object):
     def __init__(self, parent=None):
         self.parent = parent
         self.widgets = []
-        self.json = json
+        self.json = None
         self.model = None
         self.inputs = []
         self.outputs = []
@@ -796,10 +797,10 @@ class ModelParameters(object):
         return self.reCamelCase.sub(r' \1', str)
 
     def create(self, json):
+        print("create model from json")
         if not self.parent:
             raise "no parent"
-
-        parametersFormLayout = self.parent.layout()
+            # parametersFormLayout = self.parent.layout()
 
         # You can't use exec in a function that has a subfunction, unless you specify a context.
         # exec ('self.model = sitk.{0}()'.format(json["name"])) in globals(), locals()
@@ -976,10 +977,11 @@ class ModelParameters(object):
                 self.addWidgetWithToolTipAndLabel(w, member)
 
     def createVolumeWidget(self, name, iotype, voltype, noneEnabled=False):
+        print("create volume widget : {0}".format(name))
         volumeSelector = slicer.qMRMLNodeComboBox()
         self.widgets.append(volumeSelector)
         if voltype == 'ScalarVolume':
-            volumeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode",  ]
+            volumeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", ]
         elif voltype == 'LabelMap':
             volumeSelector.nodeTypes = ["vtkMRMLLabelMapVolumeNode", ]
         else:
@@ -989,7 +991,7 @@ class ModelParameters(object):
             volumeSelector.addEnabled = False
         elif iotype == "output":
             volumeSelector.addEnabled = True
-        volumeSelector.removeEnabled = False
+        volumeSelector.removeEnabled = True
         volumeSelector.noneEnabled = noneEnabled
         volumeSelector.showHidden = False
         volumeSelector.showChildNodeTypes = False
@@ -997,7 +999,7 @@ class ModelParameters(object):
         volumeSelector.setToolTip("Pick the volume.")
 
         # connect and verify parameters
-        volumeSelector.connect("nodeActivated(vtkMRMLNode*)",
+        volumeSelector.connect("currentNodeChanged(vtkMRMLNode*)",
                                lambda node, n=name, io=iotype: self.onVolumeSelect(node, n, io))
         if iotype == "input":
             self.inputs[name] = volumeSelector.currentNode()
@@ -1138,6 +1140,7 @@ class ModelParameters(object):
             ptWidget.coordinates = ",".join(str(x) for x in ptWidget.coordinates.split(','))
 
     def onVolumeSelect(self, mrmlNode, n, io):
+        print("on volume select:{}".format(n))
         if io == "input":
             self.inputs[n] = mrmlNode
         elif io == "output":
@@ -1240,6 +1243,7 @@ class ModelParameters(object):
         # exec ('self.model.Set{0}(coords)'.format(name))
 
     def prerun(self):
+        print('prerun')
         for f in self.prerun_callbacks:
             f()
 
