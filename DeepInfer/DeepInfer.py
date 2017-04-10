@@ -141,6 +141,8 @@ class DeepInferWidget:
             self.dockerPath.setCurrentPath('/usr/local/bin/docker')
         if platform.system() == 'Linux':
             self.dockerPath.setCurrentPath('/usr/bin/docker')
+        if platform.system() == 'Windows':
+            self.dockerPath.setCurrentPath("C:/Program Files/Docker/Docker/resources/bin/docker.exe")
 
         # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
 
