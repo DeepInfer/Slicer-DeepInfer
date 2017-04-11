@@ -8,8 +8,7 @@ set(EXTENSION_CATEGORY "Machine Learning")
 set(EXTENSION_CONTRIBUTORS "Alireza Mehrtash(UBC, BWH), Mehran Pesteie (UBC)")
 set(EXTENSION_DESCRIPTION "Deep learning deployment toolkit for medical imaging.")
 set(EXTENSION_ICONURL "https://www.slicer.org/w/images/a/a9/Deepinfer-256.png")
-# set(EXTENSION_SCREENSHOTURLS "http://www.slicer.org/slicerWiki/images/b/bf/TCIABrowser-screenshot.png")
-
+set(EXTENSION_SCREENSHOTURLS "://www.slicer.org/w/images/d/d3/Deepinfer-screenshot1.png")
 #-----------------------------------------------------------------------------
 find_package(Slicer REQUIRED)
 include(${Slicer_USE_FILE})
