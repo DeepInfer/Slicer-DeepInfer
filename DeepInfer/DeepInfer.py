@@ -337,8 +337,8 @@ class DeepInferWidget:
         jsonFiles.sort(cmp=lambda x, y: cmp(os.path.basename(x), os.path.basename(y)))
         self.jsonModels = []
         for fname in jsonFiles:
-            fp = file(fname, "r")
-            j = json.load(fp, object_pairs_hook=OrderedDict)
+            with open(fname, "r") as fp:
+                j = json.load(fp, object_pairs_hook=OrderedDict)
             if j['docker']['digest'] in digests:
                 self.jsonModels.append(j)
             else:
