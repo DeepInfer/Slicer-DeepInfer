@@ -422,7 +422,7 @@ class DeepInferWidget:
             self.connectButton.visible = False
             self.connectButton.enabled = False
             import urllib2
-            url = 'https://api.github.com/repos/deepinfer/Model-Registry/contents/'
+            url = 'https://api.github.com/repos/needlefinder/Model-Registry/contents/'
             response = urllib2.urlopen(url)
             data = json.load(response)
             for item in data:
@@ -631,6 +631,7 @@ class DeepInferLogic:
         self.cmdStartEvent()
         inputDict = dict()
         outputDict = dict()
+        paramDict = dict()
         for item in modeldict:
             print(item)
             if modeldict[item]["iotype"] == "input":
@@ -649,6 +650,8 @@ class DeepInferLogic:
                 if modeldict[item]["type"] == "volume":
                       fileName = item + '.nrrd'
                       outputDict[item] = fileName
+            elif modeldict[item]["iotype"] == "parameter":
+                paramDict[item] = str(modeldict[item]["value"])
 
         print('cmd')
         cmd = []
@@ -662,6 +665,9 @@ class DeepInferLogic:
         for key in outputDict.keys():
             cmd.append('--' + key)
             cmd.append(os.path.join('/home/deepinfer/data/', outputDict[key]))
+        for key in paramDict.keys():
+            cmd.append('--' + key)
+            cmd.append(paramDict[key])
         print('-'*100)
         print(cmd)
 
@@ -959,8 +965,8 @@ class ModelParameters(object):
                           "sitk.sitkFloat64"]
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
-                w = self.createDoubleWidget(member["name"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                w = self.createDoubleWidget(member["param_name"], default=member["default"])
+                self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],"value":member["default"]}
             elif t == "bool":
                 w = self.createBoolWidget(member["name"])
                 self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
@@ -969,8 +975,8 @@ class ModelParameters(object):
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
-                w = self.createIntWidget(member["name"], t)
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                w = self.createIntWidget(member["param_name"], t, default=member["default"])
+                self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"], "value":member["default"]}
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
@@ -1063,7 +1069,7 @@ class ModelParameters(object):
         # w.coordinates = ",".join(str(x) for x in default)
         return w
 
-    def createIntWidget(self, name, type="int"):
+    def createIntWidget(self, name, type="int", default=None):
 
         w = qt.QSpinBox()
         self.widgets.append(w)
@@ -1082,7 +1088,8 @@ class ModelParameters(object):
             w.setRange(-2147483648, 2147483647)
 
         # exec ('default = self.model.Get{0}()'.format(name)) in globals(), locals()
-        # w.setValue(int(default))
+        if default is not None:
+            w.setValue(int(default))
         w.connect("valueChanged(int)", lambda val, name=name: self.onScalarChanged(name, val))
         return w
 
@@ -1097,7 +1104,7 @@ class ModelParameters(object):
 
         return w
 
-    def createDoubleWidget(self, name):
+    def createDoubleWidget(self, name, default=None):
         # exec ('default = self.model.Get{0}()'.format(name)) in globals(), locals()
         w = qt.QDoubleSpinBox()
         self.widgets.append(w)
@@ -1105,7 +1112,8 @@ class ModelParameters(object):
         w.setRange(-3.40282e+038, 3.40282e+038)
         w.decimals = 5
 
-        # w.setValue(default)
+        if default is not None:
+            w.setValue(default)
         w.connect("valueChanged(double)", lambda val, name=name: self.onScalarChanged(name, val))
 
         return w
@@ -1227,6 +1235,8 @@ class ModelParameters(object):
     def onScalarChanged(self, name, val):
         # exec ('self.model.Set{0}(val)'.format(name))
         print("onScalarChanged")
+        self.modeldict[name]["value"] = val
+        print(self.modeldict)
 
     def onEnumChanged(self, name, selectorIndex, selector):
         data = selector.itemData(selectorIndex)
