@@ -143,6 +143,11 @@ class DeepInferWidget:
             self.dockerPath.setCurrentPath('/usr/bin/docker')
         if platform.system() == 'Windows':
             self.dockerPath.setCurrentPath("C:/Program Files/Docker/Docker/resources/bin/docker.exe")
+        
+        ### use nvidia-docker if it is installed
+        nvidiaDockerPath = self.dockerPath.currentPath.replace('bin/docker','bin/nvidia-docker')
+        if os.path.isfile(nvidiaDockerPath):
+            self.dockerPath.setCurrentPath(nvidiaDockerPath)
 
         # modelRepositoryVerticalLayout = qt.QVBoxLayout(modelRepositoryExpdableArea)
 
@@ -422,7 +427,7 @@ class DeepInferWidget:
             self.connectButton.visible = False
             self.connectButton.enabled = False
             import urllib2
-            url = 'https://api.github.com/repos/needlefinder/Model-Registry/contents/'
+            url = 'https://api.github.com/repos/DeepInfer/Model-Registry/contents/'
             response = urllib2.urlopen(url)
             data = json.load(response)
             for item in data:
