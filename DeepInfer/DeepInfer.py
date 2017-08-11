@@ -14,8 +14,8 @@ from __main__ import qt, ctk, slicer
 
 # To avoid the overhead of importing SimpleITK during application
 # startup, the import of SimpleITK is delayed until it is needed.
-sitk = None
-sitkUtils = None
+import SimpleITK as sitk
+import sitkUtils
 
 
 ICON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/Icons/'
@@ -83,10 +83,6 @@ class DeepInferWidget:
 
         # To avoid the overhead of importing SimpleITK during application
         # startup, the import of SimpleITK is delayed until it is needed.
-        global sitk
-        import SimpleITK as sitk
-        global sitkUtils
-        import sitkUtils
 
         if not parent:
             self.parent = slicer.qMRMLWidget()
@@ -145,7 +141,7 @@ class DeepInferWidget:
             self.dockerPath.setCurrentPath("C:/Program Files/Docker/Docker/resources/bin/docker.exe")
         
         ### use nvidia-docker if it is installed
-        nvidiaDockerPath = self.dockerPath.currentPath.replace('bin/docker','bin/nvidia-docker')
+        nvidiaDockerPath = self.dockerPath.currentPath.replace('bin/docker', 'bin/nvidia-docker')
         if os.path.isfile(nvidiaDockerPath):
             self.dockerPath.setCurrentPath(nvidiaDockerPath)
 
@@ -365,7 +361,7 @@ class DeepInferWidget:
 
     '''
     def printPythonCommand(self):
-        self.modelParameters.prerun()  # Do this first!
+        self.modelParameters.prrun()  # Do this first!
         printStr = []
         currentModel = self.modelParameters.model
         varName = currentModel.__class__.__name__
@@ -532,9 +528,7 @@ class DeepInferWidget:
         # try:
         self.currentStatusLabel.text = "Starting"
         self.modelParameters.prerun()
-        self.logic.run(self.modelParameters.modeldict,
-                       self.modelParameters.inputs,
-                       self.modelParameters.outputs)
+        self.logic.run(self.modelParameters)
 
         '''
         except:
@@ -591,6 +585,21 @@ class DeepInferLogic:
         self.main_queue_running = False
         self.thread = threading.Thread()
         self.abort = False
+        modules = slicer.modules
+        if hasattr(modules, 'DeepInferWidget'):
+            self.dockerPath = slicer.modules.DeepInferWidget.dockerPath.currentPath
+        else:
+            if platform.system() == 'Darwin':
+                defualt_path = '/usr/local/bin/docker'
+                self.setDockerPath(defualt_path)
+            elif platform.system() == 'Linux':
+                defualt_path = '/usr/bin/docker'
+                self.setDockerPath(defualt_path)
+            elif platform.system() == 'Windows':
+                defualt_path = "C:/Program Files/Docker/Docker/resources/bin/docker.exe"
+                self.setDockerPath(defualt_path)
+            else:
+                print('could not determine system type')
 
 
     def __del__(self):
@@ -598,6 +607,9 @@ class DeepInferLogic:
             self.main_queue_stop()
         if self.thread.is_alive():
             self.thread.join()
+
+    def setDockerPath(self, path):
+        self.dockerPath = path
 
     def yieldPythonGIL(self, seconds=0):
         sleep(seconds)
@@ -627,13 +639,17 @@ class DeepInferLogic:
         widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
-    def execute_docker(self, modeldict, inputs):
+    def execute_docker(self, modelName, modeldict, inputs, params):
+        modules = slicer.modules
+        if hasattr(modules, 'DeepInferWidget'):
+            widgetPresent = True
+        else:
+            widgetPresent = False
         print('execute docker')
         print("model dict: ", modeldict)
         print("inputs:", inputs)
-        print("outputs:", inputs)
-        widget = slicer.modules.DeepInferWidget
-        self.cmdStartEvent()
+        if widgetPresent:
+            self.cmdStartEvent()
         inputDict = dict()
         outputDict = dict()
         paramDict = dict()
@@ -641,7 +657,7 @@ class DeepInferLogic:
             print(item)
             if modeldict[item]["iotype"] == "input":
                 if modeldict[item]["type"] == "volume":
-                    print(inputs[item])
+                    # print(inputs[item])
                     input_node_name = inputs[item].GetName()
                     #try:
                     img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
@@ -656,14 +672,21 @@ class DeepInferLogic:
                       fileName = item + '.nrrd'
                       outputDict[item] = fileName
             elif modeldict[item]["iotype"] == "parameter":
-                paramDict[item] = str(modeldict[item]["value"])
+                paramDict[item] = params[item]
 
-        print('cmd')
-        cmd = []
-        cmd.append(widget.dockerPath.currentPath)
+        print('-'*100 + 'input dict')
+        print(inputDict)
+        print('-'*100 + 'output dict')
+        print(outputDict)
+        print('-'*100+ 'param dict')
+        print(paramDict)
+        print('-'*100)
+        print('docker run command:')
+        cmd = list()
+        cmd.append(self.dockerPath)
         cmd.extend(('run', '-t', '-v'))
         cmd.append(TMP_PATH + ':/home/deepinfer/data')
-        cmd.append(widget.modelParameters.dockerImageName)
+        cmd.append(modelName)
         for key in inputDict.keys():
             cmd.append('--' + key)
             cmd.append(os.path.join('/home/deepinfer/data/', inputDict[key]))
@@ -671,8 +694,12 @@ class DeepInferLogic:
             cmd.append('--' + key)
             cmd.append(os.path.join('/home/deepinfer/data/', outputDict[key]))
         for key in paramDict.keys():
-            cmd.append('--' + key)
-            cmd.append(paramDict[key])
+            if modeldict[key]["type"] == "bool":
+                if paramDict[key]:
+                    cmd.append('--' + key)
+            else:
+                cmd.append('--' + key)
+                cmd.append(paramDict[key])
         print('-'*100)
         print(cmd)
 
@@ -680,11 +707,13 @@ class DeepInferLogic:
         #try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         progress = 0
+        print('executing')
         while True:
             progress += 0.15
             slicer.app.processEvents()
             self.cmdCheckAbort(p)
-            self.cmdProgressEvent(progress)
+            if widgetPresent:
+                self.cmdProgressEvent(progress)
             line = p.stdout.readline()
             if not line:
                 break
@@ -694,10 +723,17 @@ class DeepInferLogic:
         #    self.abort = True
         #    qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
-    def thread_doit(self, modeldict, inputs, outputs):
+
+    def thread_doit(self, modelParameters):
+
+        modeldict = modelParameters.modeldict
+        inputs = modelParameters.inputs
+        params = modelParameters.params
+        outputs = modelParameters.outputs
+        modelName = modelParameters.dockerImageName
         #try:
         self.main_queue_start()
-        self.execute_docker(modeldict, inputs)
+        self.execute_docker(modelName, modeldict, inputs, params)
         if not self.abort:
             self.updateOutput(outputs)
             self.main_queue_stop()
@@ -765,7 +801,7 @@ class DeepInferLogic:
         applicationLogic.PropagateVolumeSelection(0)
         applicationLogic.FitSliceToAll()
 
-    def run(self, modeldict, inputs, outputs):
+    def run(self, modelParamters):
         """
         Run the actual algorithm
         """
@@ -774,7 +810,7 @@ class DeepInferLogic:
             sys.stderr.write("ModelLogic is already executing!")
             return
         self.abort = False
-        self.thread = threading.Thread(target=self.thread_doit(modeldict, inputs, outputs))
+        self.thread = threading.Thread(target=self.thread_doit(modelParameters=modelParamters))
 
 
 #
@@ -809,8 +845,29 @@ class ModelParameters(object):
     def BeautifyCamelCase(self, str):
         return self.reCamelCase.sub(r' \1', str)
 
+    def create_model_dict(self, json):
+        modeldict = dict()
+        for member in json["members"]:
+            if "type" in member:
+                t = member["type"]
+
+                if t in ["uint8_t", "int8_t",
+                           "uint16_t", "int16_t",
+                           "uint32_t", "int32_t",
+                           "uint64_t", "int64_t",
+                           "unsigned int", "int",
+                           "double", "float"]:
+                    modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],
+                                                            "value": member["default"]}
+
+                else:
+                    modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+        return modeldict
+
+
     def create(self, json):
         print("create model from json")
+        self.modeldict = self.create_model_dict(json)
         if not self.parent:
             raise "no parent"
             # parametersFormLayout = self.parent.layout()
@@ -821,6 +878,7 @@ class ModelParameters(object):
         self.prerun_callbacks = []
         self.inputs = dict()
         self.outputs = dict()
+        self.params = dict()
         self.outputLabelMap = False
         self.dockerImageName = json['docker']['dockerhub_repository']
 
@@ -869,7 +927,7 @@ class ModelParameters(object):
                     self.widgets.append(toggle)
 
                     w2 = self.createVectorWidget(member["name"], t)
-                    self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                    # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
                     hlayout = qt.QHBoxLayout()
                     hlayout.addWidget(fiducialSelector)
@@ -885,11 +943,11 @@ class ModelParameters(object):
                     toggle.connect("clicked(bool)",
                                    lambda checked, ptW=w2, fidW=w1: self.onToggledPointSelector(checked, ptW, fidW))
 
-                    parametersFormLayout.addRow(fiducialSelectorLabel, hlayout)
+                    # parametersFormLayout.addRow(fiducialSelectorLabel, hlayout)
 
                 else:
                     w = self.createVectorWidget(member["name"], t)
-                    self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                    # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif "point_vec" in member:
 
@@ -917,17 +975,18 @@ class ModelParameters(object):
 
             elif "enum" in member:
                 w = self.createEnumWidget(member["name"], member["enum"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+
             elif member["name"].endswith("Direction") and "std::vector" in t:
                 # This member name is use for direction cosine matrix for image sources.
                 # We are going to ignore it
                 pass
             elif t == "volume":
                 w = self.createVolumeWidget(member["name"], member["iotype"], member["voltype"], False)
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif t == "InterpolatorEnum":
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
                 labels = ["Nearest Neighbor",
                           "Linear",
                           "BSpline",
@@ -971,17 +1030,17 @@ class ModelParameters(object):
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
                 w = self.createDoubleWidget(member["param_name"], default=member["default"])
-                self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],"value":member["default"]}
+                # self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],"value":member["default"]}
             elif t == "bool":
-                w = self.createBoolWidget(member["name"])
-                self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+                w = self.createBoolWidget(member["name"], default=member["default"])
+                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             elif t in ["uint8_t", "int8_t",
                        "uint16_t", "int16_t",
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
                 w = self.createIntWidget(member["param_name"], t, default=member["default"])
-                self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"], "value":member["default"]}
+                # self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"], "value":member["default"]}
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
@@ -1098,14 +1157,16 @@ class ModelParameters(object):
         w.connect("valueChanged(int)", lambda val, name=name: self.onScalarChanged(name, val))
         return w
 
-    def createBoolWidget(self, name):
-        # exec ('default = self.model.Get{0}()'.format(name)) in globals(), locals()
+    def createBoolWidget(self, name, default):
+        print('create bool widget')
         w = qt.QCheckBox()
-        self.widgets.append(w)
-
-        # w.setChecked(default)
-
-        w.connect("stateChanged(int)", lambda val, name=name: self.onScalarChanged(name, bool(val)))
+        if default == 'false':
+            checked = False
+        else:
+            checked = True
+        w.setChecked(checked)
+        self.params[name] = int(w.checked)
+        w.connect("stateChanged(int)", lambda val, name=name: self.onScalarChanged(name, int(val)))
 
         return w
 
@@ -1240,7 +1301,7 @@ class ModelParameters(object):
     def onScalarChanged(self, name, val):
         # exec ('self.model.Set{0}(val)'.format(name))
         print("onScalarChanged")
-        self.modeldict[name]["value"] = val
+        self.params[name] = val
         print(self.modeldict)
 
     def onEnumChanged(self, name, selectorIndex, selector):
