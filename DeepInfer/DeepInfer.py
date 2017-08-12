@@ -353,7 +353,6 @@ class DeepInferWidget:
     def onCloudModelSelect(self):
         self.downloadButton.enabled = False
         # print("on cloud model select!")
-        # print(self.modelNamesTableItems)
         for item in self.modelTableItems.keys():
             if item.isSelected():
                 self.downloadButton.enabled = True
@@ -401,7 +400,7 @@ class DeepInferWidget:
                 self.modelSelector.addItem(j["name"], idx)
 
     def onModelSelect(self, selectorIndex):
-        print("on model select")
+        # print("on model select")
         self.modelParameters.destroy()
         if selectorIndex < 0:
             return
@@ -639,62 +638,72 @@ class DeepInferLogic:
         widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
-    def execute_docker(self, modelName, modeldict, inputs, params):
+    def execute_docker(self, dockerName, modelName, dataPath, iodict, inputs, params):
         modules = slicer.modules
         if hasattr(modules, 'DeepInferWidget'):
             widgetPresent = True
         else:
             widgetPresent = False
+        print('-'*100)
         print('execute docker')
-        print("model dict: ", modeldict)
+        print("model dict: ", iodict)
         print("inputs:", inputs)
+        print("params:", params)
+        print('-'*100)
         if widgetPresent:
             self.cmdStartEvent()
         inputDict = dict()
         outputDict = dict()
         paramDict = dict()
-        for item in modeldict:
+        for item in iodict:
             print(item)
-            if modeldict[item]["iotype"] == "input":
-                if modeldict[item]["type"] == "volume":
+            if iodict[item]["iotype"] == "input":
+                if iodict[item]["type"] == "volume":
                     # print(inputs[item])
                     input_node_name = inputs[item].GetName()
                     #try:
                     img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
-                    img = sitk.Cast(sitk.RescaleIntensity(img), sitk.sitkUInt8)
                     fileName = item + '.nrrd'
                     inputDict[item] = fileName
                     sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
                     #except Exception as e:
                     #    print(e.message)
-            elif modeldict[item]["iotype"] == "output":
-                if modeldict[item]["type"] == "volume":
+            elif iodict[item]["iotype"] == "output":
+                if iodict[item]["type"] == "volume":
                       fileName = item + '.nrrd'
                       outputDict[item] = fileName
-            elif modeldict[item]["iotype"] == "parameter":
+            elif iodict[item]["iotype"] == "parameter":
                 paramDict[item] = params[item]
 
+        '''
         print('-'*100 + 'input dict')
         print(inputDict)
         print('-'*100 + 'output dict')
         print(outputDict)
-        print('-'*100+ 'param dict')
+        print('-'*100 + 'param dict')
         print(paramDict)
         print('-'*100)
+        '''
+        if not dataPath:
+            dataPath = '/home/deepinfer/data'
+
         print('docker run command:')
         cmd = list()
         cmd.append(self.dockerPath)
         cmd.extend(('run', '-t', '-v'))
-        cmd.append(TMP_PATH + ':/home/deepinfer/data')
-        cmd.append(modelName)
+        cmd.append(TMP_PATH + ':' + dataPath)
+        cmd.append(dockerName)
         for key in inputDict.keys():
             cmd.append('--' + key)
-            cmd.append(os.path.join('/home/deepinfer/data/', inputDict[key]))
+            cmd.append(os.path.join(dataPath, inputDict[key]))
         for key in outputDict.keys():
             cmd.append('--' + key)
-            cmd.append(os.path.join('/home/deepinfer/data/', outputDict[key]))
+            cmd.append(os.path.join(dataPath, outputDict[key]))
+        if modelName:
+            cmd.append('--ModelName')
+            cmd.append(modelName)
         for key in paramDict.keys():
-            if modeldict[key]["type"] == "bool":
+            if iodict[key]["type"] == "bool":
                 if paramDict[key]:
                     cmd.append('--' + key)
             else:
@@ -703,11 +712,11 @@ class DeepInferLogic:
         print('-'*100)
         print(cmd)
 
-        #TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
-        #try:
+        # TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
+        # try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         progress = 0
-        print('executing')
+        # print('executing')
         while True:
             progress += 0.15
             slicer.app.processEvents()
@@ -723,19 +732,19 @@ class DeepInferLogic:
         #    self.abort = True
         #    qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
-
     def thread_doit(self, modelParameters):
-
-        modeldict = modelParameters.modeldict
+        iodict = modelParameters.iodict
         inputs = modelParameters.inputs
         params = modelParameters.params
         outputs = modelParameters.outputs
-        modelName = modelParameters.dockerImageName
+        dockerName = modelParameters.dockerImageName
+        modelName = modelParameters.modelName
+        dataPath = modelParameters.dataPath
         #try:
         self.main_queue_start()
-        self.execute_docker(modelName, modeldict, inputs, params)
+        self.execute_docker(dockerName, modelName, dataPath, iodict, inputs, params)
         if not self.abort:
-            self.updateOutput(outputs)
+            self.updateOutput(iodict, outputs)
             self.main_queue_stop()
             self.cmdEndEvent()
 
@@ -783,23 +792,31 @@ class DeepInferLogic:
             if not self.main_queue.empty() or self.main_queue_running:
                 qt.QTimer.singleShot(0, self.main_queue_process)
 
-    def updateOutput(self, outputs):
-        result = sitk.ReadImage(TMP_PATH+'/OutputLabel.nrrd')
-        output_node = outputs['OutputLabel']
-        output_node_name = output_node.GetName()
-        nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
-        sitk.WriteImage(result, nodeWriteAddress)
-        applicationLogic = slicer.app.applicationLogic()
-        selectionNode = applicationLogic.GetSelectionNode()
+    def updateOutput(self, iodict, outputs):
+        # print('updateOutput method')
+        output_volume_files = dict()
+        for item in iodict:
+            if iodict[item]["iotype"] == "output":
+                if iodict[item]["type"] == "volume":
+                    fileName = str(os.path.join(TMP_PATH, item + '.nrrd'))
+                    output_volume_files[item] = fileName
+        for output_volume in output_volume_files.keys():
+            result = sitk.ReadImage(output_volume_files[output_volume])
+            output_node = outputs[output_volume]
+            output_node_name = output_node.GetName()
+            nodeWriteAddress = sitkUtils.GetSlicerITKReadWriteAddress(output_node_name)
+            sitk.WriteImage(result, nodeWriteAddress)
+            applicationLogic = slicer.app.applicationLogic()
+            selectionNode = applicationLogic.GetSelectionNode()
 
-        outputLabelMap = True
-        if outputLabelMap:
-            selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
-        else:
-            selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
+            outputLabelMap = True
+            if outputLabelMap:
+                selectionNode.SetReferenceActiveLabelVolumeID(output_node.GetID())
+            else:
+                selectionNode.SetReferenceActiveVolumeID(output_node.GetID())
 
-        applicationLogic.PropagateVolumeSelection(0)
-        applicationLogic.FitSliceToAll()
+            applicationLogic.PropagateVolumeSelection(0)
+            applicationLogic.FitSliceToAll()
 
     def run(self, modelParamters):
         """
@@ -828,16 +845,19 @@ class ModelParameters(object):
         self.parent = parent
         self.widgets = []
         self.json = None
-        self.model = None
+        # self.model = None
         self.inputs = []
         self.outputs = []
         self.prerun_callbacks = []
         self.outputLabelMap = False
-        self.modeldict = dict()
+        self.iodict = dict()
         self.dockerImageName = ''
+        self.modelName = None
+        self.dataPath = None
 
         self.outputSelector = None
         self.outputLabelMapBox = None
+
 
     def __del__(self):
         self.widgets = []
@@ -845,29 +865,30 @@ class ModelParameters(object):
     def BeautifyCamelCase(self, str):
         return self.reCamelCase.sub(r' \1', str)
 
-    def create_model_dict(self, json):
-        modeldict = dict()
-        for member in json["members"]:
+    def create_iodict(self, json_dict):
+        iodict = dict()
+        for member in json_dict["members"]:
             if "type" in member:
                 t = member["type"]
-
                 if t in ["uint8_t", "int8_t",
                            "uint16_t", "int16_t",
                            "uint32_t", "int32_t",
                            "uint64_t", "int64_t",
                            "unsigned int", "int",
                            "double", "float"]:
-                    modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],
+                    iodict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],
                                                             "value": member["default"]}
 
                 else:
-                    modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
-        return modeldict
+                    iodict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
+        self.iodict = iodict
 
+    def create_model_info(self, json_dict):
+        self.dockerImageName = json_dict['docker']['dockerhub_repository']
+        self.modelName = json_dict.get('model_name')
+        self.dataPath = json_dict.get('data_path')
 
-    def create(self, json):
-        print("create model from json")
-        self.modeldict = self.create_model_dict(json)
+    def create(self, json_dict):
         if not self.parent:
             raise "no parent"
             # parametersFormLayout = self.parent.layout()
@@ -875,17 +896,19 @@ class ModelParameters(object):
         # You can't use exec in a function that has a subfunction, unless you specify a context.
         # exec ('self.model = sitk.{0}()'.format(json["name"])) in globals(), locals()
 
+        self.create_iodict(json_dict)
+        self.create_model_info(json_dict)
+
         self.prerun_callbacks = []
         self.inputs = dict()
         self.outputs = dict()
         self.params = dict()
         self.outputLabelMap = False
-        self.dockerImageName = json['docker']['dockerhub_repository']
 
         #
         # Iterate over the members in the JSON to generate a GUI
         #
-        for member in json["members"]:
+        for member in json_dict["members"]:
             w = None
             if "type" in member:
                 t = member["type"]
@@ -927,7 +950,6 @@ class ModelParameters(object):
                     self.widgets.append(toggle)
 
                     w2 = self.createVectorWidget(member["name"], t)
-                    # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
                     hlayout = qt.QHBoxLayout()
                     hlayout.addWidget(fiducialSelector)
@@ -947,7 +969,6 @@ class ModelParameters(object):
 
                 else:
                     w = self.createVectorWidget(member["name"], t)
-                    # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif "point_vec" in member:
 
@@ -969,13 +990,12 @@ class ModelParameters(object):
                 fiducialSelector.connect("nodeActivated(vtkMRMLNode*)",
                                          lambda node, name=member["name"]: self.onFiducialListNode(name, node))
                 self.prerun_callbacks.append(
-                    lambda w=fiducialSelector, name=member["name"],: self.onFiducialListNode(name, w.currentNode()))
+                    lambda w=fiducialSelector, name=member["name"], : self.onFiducialListNode(name, w.currentNode()))
 
                 w = fiducialSelector
 
             elif "enum" in member:
                 w = self.createEnumWidget(member["name"], member["enum"])
-                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif member["name"].endswith("Direction") and "std::vector" in t:
                 # This member name is use for direction cosine matrix for image sources.
@@ -983,10 +1003,8 @@ class ModelParameters(object):
                 pass
             elif t == "volume":
                 w = self.createVolumeWidget(member["name"], member["iotype"], member["voltype"], False)
-                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
 
             elif t == "InterpolatorEnum":
-                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
                 labels = ["Nearest Neighbor",
                           "Linear",
                           "BSpline",
@@ -1030,17 +1048,14 @@ class ModelParameters(object):
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
                 w = self.createDoubleWidget(member["param_name"], default=member["default"])
-                # self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],"value":member["default"]}
             elif t == "bool":
                 w = self.createBoolWidget(member["name"], default=member["default"])
-                # self.modeldict[member["name"]] = {"type": member["type"], "iotype": member["iotype"]}
             elif t in ["uint8_t", "int8_t",
                        "uint16_t", "int16_t",
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
                 w = self.createIntWidget(member["param_name"], t, default=member["default"])
-                # self.modeldict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"], "value":member["default"]}
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
@@ -1049,7 +1064,7 @@ class ModelParameters(object):
                 self.addWidgetWithToolTipAndLabel(w, member)
 
     def createVolumeWidget(self, name, iotype, voltype, noneEnabled=False):
-        print("create volume widget : {0}".format(name))
+        # print("create volume widget : {0}".format(name))
         volumeSelector = slicer.qMRMLNodeComboBox()
         self.widgets.append(volumeSelector)
         if voltype == 'ScalarVolume':
@@ -1093,13 +1108,7 @@ class ModelParameters(object):
         for e, v in zip(enumList, valueList):
             w.addItem(e, v)
 
-            # check if current item is default, set if it is
-            # exec 'itemValue=' + v in globals(), locals()
-            '''
-            if itemValue == default:
-                w.setCurrentIndex(w.count - 1)
-            '''
-
+        self.params[name] = w.currentText
         w.connect("currentIndexChanged(int)",
                   lambda selectorIndex, n=name, selector=w: self.onEnumChanged(n, selectorIndex, selector))
         return w
@@ -1158,8 +1167,9 @@ class ModelParameters(object):
         return w
 
     def createBoolWidget(self, name, default):
-        print('create bool widget')
+        # print('create bool widget')
         w = qt.QCheckBox()
+        self.widgets.append(w)
         if default == 'false':
             checked = False
         else:
@@ -1226,11 +1236,11 @@ class ModelParameters(object):
     def onOutputSelect(self, mrmlNode):
         self.output = mrmlNode
         self.onOutputLabelMapChanged(mrmlNode.IsA("vtkMRMLLabelMapVolumeNode"))
-    '''
 
     def onOutputLabelMapChanged(self, v):
         self.outputLabelMap = v
         self.outputLabelMapBox.setChecked(v)
+    '''
 
     def onFiducialNode(self, name, mrmlWidget, isPoint):
         if not mrmlWidget.visible:
@@ -1302,11 +1312,10 @@ class ModelParameters(object):
         # exec ('self.model.Set{0}(val)'.format(name))
         print("onScalarChanged")
         self.params[name] = val
-        print(self.modeldict)
 
     def onEnumChanged(self, name, selectorIndex, selector):
-        data = selector.itemData(selectorIndex)
-        # exec ('self.model.Set{0}({1})'.format(name, data))
+        # data = selector.itemData(selectorIndex)
+        self.params[name] = selector.currentText
 
     def onBoolVectorChanged(self, name, widget, val):
         coords = [bool(float(x)) for x in widget.coordinates.split(',')]
@@ -1326,7 +1335,7 @@ class ModelParameters(object):
             f()
 
     def destroy(self):
-        self.modeldict = dict()
+        self.iodict = dict()
         self.inputs = dict()
         self.outputs = dict()
         for w in self.widgets:
