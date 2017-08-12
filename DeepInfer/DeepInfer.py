@@ -695,10 +695,10 @@ class DeepInferLogic:
         cmd.append(dockerName)
         for key in inputDict.keys():
             cmd.append('--' + key)
-            cmd.append(os.path.join(dataPath, inputDict[key]))
+            cmd.append(dataPath + '/' + inputDict[key])
         for key in outputDict.keys():
             cmd.append('--' + key)
-            cmd.append(os.path.join(dataPath, outputDict[key]))
+            cmd.append(dataPath + '/' + outputDict[key])
         if modelName:
             cmd.append('--ModelName')
             cmd.append(modelName)
