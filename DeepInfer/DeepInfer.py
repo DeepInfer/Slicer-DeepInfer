@@ -650,85 +650,86 @@ class DeepInferLogic:
         return False
 
     def executeDocker(self, dockerName, modelName, dataPath, iodict, inputs, params):
-        assert self.checkDockerDaemon(), "Docker Daemon is not running"
-        modules = slicer.modules
-        if hasattr(modules, 'DeepInferWidget'):
-            widgetPresent = True
-        else:
-            widgetPresent = False
-       
-        if widgetPresent:
-            self.cmdStartEvent()
-        inputDict = dict()
-        outputDict = dict()
-        paramDict = dict()
-        for item in iodict:
-            # print(item)
-            if iodict[item]["iotype"] == "input":
-                if iodict[item]["type"] == "volume":
-                    # print(inputs[item])
-                    input_node_name = inputs[item].GetName()
-                    #try:
-                    img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
-                    fileName = item + '.nrrd'
-                    inputDict[item] = fileName
-                    sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
-                    #except Exception as e:
-                    #    print(e.message)
-            elif iodict[item]["iotype"] == "output":
-                if iodict[item]["type"] == "volume":
-                      fileName = item + '.nrrd'
-                      outputDict[item] = fileName
-            elif iodict[item]["iotype"] == "parameter":
-                paramDict[item] = params[item]
-
-        if not dataPath:
-            dataPath = '/home/deepinfer/data'
-
-        print('docker run command:')
-        cmd = list()
-        cmd.append(self.dockerPath)
-        cmd.extend(('run', '-t', '-v'))
-        cmd.append(TMP_PATH + ':' + dataPath)
-        cmd.append(dockerName)
-        for key in inputDict.keys():
-            cmd.append('--' + key)
-            cmd.append(dataPath + '/' + inputDict[key])
-        for key in outputDict.keys():
-            cmd.append('--' + key)
-            cmd.append(dataPath + '/' + outputDict[key])
-        if modelName:
-            cmd.append('--ModelName')
-            cmd.append(modelName)
-        for key in paramDict.keys():
-            if iodict[key]["type"] == "bool":
-                if paramDict[key]:
-                    cmd.append('--' + key)
+        try:
+            self.checkDockerDaemon(), "Docker Daemon is not running"
+            modules = slicer.modules
+            if hasattr(modules, 'DeepInferWidget'):
+                widgetPresent = True
             else:
-                cmd.append('--' + key)
-                cmd.append(paramDict[key])
-        print('-'*100)
-        print(cmd)
+                widgetPresent = False
 
-        # TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
-        # try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        progress = 0
-        # print('executing')
-        while True:
-            progress += 0.15
-            slicer.app.processEvents()
-            self.cmdCheckAbort(p)
             if widgetPresent:
-                self.cmdProgressEvent(progress)
-            line = p.stdout.readline()
-            if not line:
-                break
-            print(line)
-        #except Exception as e:
-        #    msg = e.message
-        #    self.abort = True
-        #    qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
+                self.cmdStartEvent()
+            inputDict = dict()
+            outputDict = dict()
+            paramDict = dict()
+            for item in iodict:
+                # print(item)
+                if iodict[item]["iotype"] == "input":
+                    if iodict[item]["type"] == "volume":
+                        # print(inputs[item])
+                        input_node_name = inputs[item].GetName()
+                        #try:
+                        img = sitk.ReadImage(sitkUtils.GetSlicerITKReadWriteAddress(input_node_name))
+                        fileName = item + '.nrrd'
+                        inputDict[item] = fileName
+                        sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
+                        #except Exception as e:
+                        #    print(e.message)
+                elif iodict[item]["iotype"] == "output":
+                    if iodict[item]["type"] == "volume":
+                          fileName = item + '.nrrd'
+                          outputDict[item] = fileName
+                elif iodict[item]["iotype"] == "parameter":
+                    paramDict[item] = params[item]
+
+            if not dataPath:
+                dataPath = '/home/deepinfer/data'
+
+            print('docker run command:')
+            cmd = list()
+            cmd.append(self.dockerPath)
+            cmd.extend(('run', '-t', '-v'))
+            cmd.append(TMP_PATH + ':' + dataPath)
+            cmd.append(dockerName)
+            for key in inputDict.keys():
+                cmd.append('--' + key)
+                cmd.append(dataPath + '/' + inputDict[key])
+            for key in outputDict.keys():
+                cmd.append('--' + key)
+                cmd.append(dataPath + '/' + outputDict[key])
+            if modelName:
+                cmd.append('--ModelName')
+                cmd.append(modelName)
+            for key in paramDict.keys():
+                if iodict[key]["type"] == "bool":
+                    if paramDict[key]:
+                        cmd.append('--' + key)
+                else:
+                    cmd.append('--' + key)
+                    cmd.append(paramDict[key])
+            print('-'*100)
+            print(cmd)
+
+            # TODO: add a line to check wether the docker image is present or not. If not ask user to download it.
+            # try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            progress = 0
+            # print('executing')
+            while True:
+                progress += 0.15
+                slicer.app.processEvents()
+                self.cmdCheckAbort(p)
+                if widgetPresent:
+                    self.cmdProgressEvent(progress)
+                line = p.stdout.readline()
+                if not line:
+                    break
+                print(line)
+        except Exception as e:
+            msg = e.message
+            self.abort = True
+            qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
 
     def thread_doit(self, modelParameters):
         iodict = modelParameters.iodict
