@@ -619,23 +619,27 @@ class DeepInferLogic:
             self.cmdAbortEvent()
 
     def cmdStartEvent(self):
-        widget = slicer.modules.DeepInferWidget
-        widget.onLogicEventStart()
+        if hasattr(slicer.modules, 'DeepInferWidget'):
+            widget = slicer.modules.DeepInferWidget
+            widget.onLogicEventStart()
         self.yieldPythonGIL()
 
     def cmdProgressEvent(self, progress):
-        widget = slicer.modules.DeepInferWidget
-        widget.onLogicEventProgress(progress)
+        if hasattr(slicer.modules, 'DeepInferWidget'):
+            widget = slicer.modules.DeepInferWidget
+            widget.onLogicEventProgress(progress)
         self.yieldPythonGIL()
 
     def cmdAbortEvent(self):
-        widget = slicer.modules.DeepInferWidget
-        widget.onLogicEventAbort()
+        if hasattr(slicer.modules, 'DeepInferWidget'):
+            widget = slicer.modules.DeepInferWidget
+            widget.onLogicEventAbort()
         self.yieldPythonGIL()
 
     def cmdEndEvent(self):
-        widget = slicer.modules.DeepInferWidget
-        widget.onLogicEventEnd()
+        if hasattr(slicer.modules, 'DeepInferWidget'):
+            widget = slicer.modules.DeepInferWidget
+            widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
     def checkDockerDaemon(self):
