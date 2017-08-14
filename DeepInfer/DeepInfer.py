@@ -653,7 +653,7 @@ class DeepInferLogic:
         try:
             assert self.checkDockerDaemon(), "Docker Daemon is not running"
         except Exception as e:
-            msg = e.message
+            print(e.message)
             self.abort = True
 
         modules = slicer.modules
