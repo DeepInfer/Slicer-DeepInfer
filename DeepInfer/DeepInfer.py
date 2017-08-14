@@ -638,25 +638,32 @@ class DeepInferLogic:
         widget.onLogicEventEnd()
         self.yieldPythonGIL()
 
-    def execute_docker(self, dockerName, modelName, dataPath, iodict, inputs, params):
+    def checkDockerDaemon(self):
+        cmd = list()
+        cmd.append(self.dockerPath)
+        cmd.append('ps')
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        slicer.app.processEvents()
+        line = p.stdout.readline()
+        if line[:9] == 'CONTAINER':
+            return True
+        return False
+
+    def executeDocker(self, dockerName, modelName, dataPath, iodict, inputs, params):
+        assert self.checkDockerDaemon(), "Docker Daemon is not running"
         modules = slicer.modules
         if hasattr(modules, 'DeepInferWidget'):
             widgetPresent = True
         else:
             widgetPresent = False
-        print('-'*100)
-        print('execute docker')
-        print("model dict: ", iodict)
-        print("inputs:", inputs)
-        print("params:", params)
-        print('-'*100)
+       
         if widgetPresent:
             self.cmdStartEvent()
         inputDict = dict()
         outputDict = dict()
         paramDict = dict()
         for item in iodict:
-            print(item)
+            # print(item)
             if iodict[item]["iotype"] == "input":
                 if iodict[item]["type"] == "volume":
                     # print(inputs[item])
@@ -675,15 +682,6 @@ class DeepInferLogic:
             elif iodict[item]["iotype"] == "parameter":
                 paramDict[item] = params[item]
 
-        '''
-        print('-'*100 + 'input dict')
-        print(inputDict)
-        print('-'*100 + 'output dict')
-        print(outputDict)
-        print('-'*100 + 'param dict')
-        print(paramDict)
-        print('-'*100)
-        '''
         if not dataPath:
             dataPath = '/home/deepinfer/data'
 
@@ -742,7 +740,7 @@ class DeepInferLogic:
         dataPath = modelParameters.dataPath
         #try:
         self.main_queue_start()
-        self.execute_docker(dockerName, modelName, dataPath, iodict, inputs, params)
+        self.executeDocker(dockerName, modelName, dataPath, iodict, inputs, params)
         if not self.abort:
             self.updateOutput(iodict, outputs)
             self.main_queue_stop()
@@ -1226,7 +1224,7 @@ class ModelParameters(object):
             ptWidget.coordinates = ",".join(str(x) for x in ptWidget.coordinates.split(','))
 
     def onVolumeSelect(self, mrmlNode, n, io):
-        print("on volume select:{}".format(n))
+        # print("on volume select:{}".format(n))
         if io == "input":
             self.inputs[n] = mrmlNode
         elif io == "output":
@@ -1310,7 +1308,7 @@ class ModelParameters(object):
 
     def onScalarChanged(self, name, val):
         # exec ('self.model.Set{0}(val)'.format(name))
-        print("onScalarChanged")
+        # print("onScalarChanged")
         self.params[name] = val
 
     def onEnumChanged(self, name, selectorIndex, selector):
@@ -1330,7 +1328,7 @@ class ModelParameters(object):
         # exec ('self.model.Set{0}(coords)'.format(name))
 
     def prerun(self):
-        print('prerun')
+        print('prerun...')
         for f in self.prerun_callbacks:
             f()
 
