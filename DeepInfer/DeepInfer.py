@@ -686,8 +686,9 @@ class DeepInferLogic:
                     #    print(e.message)
             elif iodict[item]["iotype"] == "output":
                 if iodict[item]["type"] == "volume":
-                      fileName = item + '.nrrd'
-                      outputDict[item] = fileName
+                      outputDict[item] = item + '.nrrd'
+                elif iodict[item]["type"] == "point_vec":
+                    outputDict[item] = item + '.fcsv'
             elif iodict[item]["iotype"] == "parameter":
                 paramDict[item] = params[item]
 
@@ -799,12 +800,15 @@ class DeepInferLogic:
     def updateOutput(self, iodict, outputs):
         # print('updateOutput method')
         output_volume_files = dict()
+        output_fiduciallist_files = dict()
         for item in iodict:
             if iodict[item]["iotype"] == "output":
                 if iodict[item]["type"] == "volume":
                     fileName = str(os.path.join(TMP_PATH, item + '.nrrd'))
-                    print(fileName)
                     output_volume_files[item] = fileName
+                if iodict[item]["type"] == "point_vec":
+                    fileName = str(os.path.join(TMP_PATH, item + '.fcsv'))
+                    output_fiduciallist_files[item] = fileName
         for output_volume in output_volume_files.keys():
             result = sitk.ReadImage(output_volume_files[output_volume])
             output_node = outputs[output_volume]
@@ -822,6 +826,16 @@ class DeepInferLogic:
 
             applicationLogic.PropagateVolumeSelection(0)
             applicationLogic.FitSliceToAll()
+        for fiduciallist in output_fiduciallist_files.keys():
+            # information about loading markups: https://www.slicer.org/wiki/Documentation/Nightly/Modules/Markups
+            output_node = outputs[fiduciallist]
+            _, node = slicer.util.loadMarkupsFiducialList(output_fiduciallist_files[fiduciallist], True)
+            output_node.Copy(node)
+            scene = slicer.mrmlScene
+            # todo: currently due to a bug in markups module removing the node will create some unexpected behaviors
+            # reported bug reference: https://issues.slicer.org/view.php?id=4414
+            # scene.RemoveNode(node)
+
 
     def run(self, modelParamters):
         """
@@ -976,7 +990,7 @@ class ModelParameters(object):
                 else:
                     w = self.createVectorWidget(member["name"], t)
 
-            elif "point_vec" in member:
+            elif t == "point_vec":
 
                 fiducialSelector = slicer.qMRMLNodeComboBox()
                 self.widgets.append(fiducialSelector)
@@ -993,10 +1007,11 @@ class ModelParameters(object):
                 fiducialSelector.setMRMLScene(slicer.mrmlScene)
                 fiducialSelector.setToolTip("Pick the Markups node for the point list.")
 
+
                 fiducialSelector.connect("nodeActivated(vtkMRMLNode*)",
-                                         lambda node, name=member["name"]: self.onFiducialListNode(name, node))
+                                         lambda node, name=member["name"]: self.onFiducialListNode(name, node, member["iotype"]))
                 self.prerun_callbacks.append(
-                    lambda w=fiducialSelector, name=member["name"], : self.onFiducialListNode(name, w.currentNode()))
+                    lambda w=fiducialSelector, name=member["name"], : self.onFiducialListNode(name, w.currentNode(), member["iotype"]))
 
                 w = fiducialSelector
 
@@ -1084,6 +1099,7 @@ class ModelParameters(object):
             volumeSelector.addEnabled = False
         elif iotype == "output":
             volumeSelector.addEnabled = True
+        volumeSelector.renameEnabled = True
         volumeSelector.removeEnabled = True
         volumeSelector.noneEnabled = noneEnabled
         volumeSelector.showHidden = False
@@ -1274,7 +1290,14 @@ class ModelParameters(object):
             coord = img.TransformPhysicalPointToIndex(coord)
             # exec ('self.model.Set{0}(coord)'.format(name))
 
-    def onFiducialListNode(self, name, mrmlNode):
+    def onFiducialListNode(self, name, mrmlNode, io):
+        self.params[name] = mrmlNode
+        if io == "input":
+            self.inputs[name] = mrmlNode
+        elif io == "output":
+            self.outputs[name] = mrmlNode
+
+        '''
         annotationHierarchyNode = mrmlNode
 
         # list of points in physical space
@@ -1313,6 +1336,7 @@ class ModelParameters(object):
             idx_coords = [img.TransformPhysicalPointToIndex(pt) for pt in coords]
 
             # exec ('self.model.Set{0}(idx_coords)'.format(name))
+        '''
 
     def onScalarChanged(self, name, val):
         # exec ('self.model.Set{0}(val)'.format(name))
