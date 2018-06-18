@@ -133,6 +133,8 @@ class DeepInferWidget:
         self.dockerPath = ctk.ctkPathLineEdit()
         # self.dockerPath.setMaximumWidth(300)
         dockerForm.addRow("Docker Executable Path:", self.dockerPath)
+        self.testDockerButton = qt.QPushButton('Test!')
+        dockerForm.addRow("Test Docker Configuration:", self.testDockerButton)
         if platform.system() == 'Darwin':
             self.dockerPath.setCurrentPath('/usr/local/bin/docker')
         if platform.system() == 'Linux':
@@ -217,7 +219,6 @@ class DeepInferWidget:
 
         hlayout = qt.QHBoxLayout()
 
-
         #
         # Local Models Area
         #
@@ -297,6 +298,7 @@ class DeepInferWidget:
         # connections
         self.connectButton.connect('clicked(bool)', self.onConnectButton)
         self.downloadButton.connect('clicked(bool)', self.onDownloadButton)
+        self.testDockerButton.connect('clicked(bool)', self.onTestDockerButton)
         self.restoreDefaultsButton.connect('clicked(bool)', self.onRestoreDefaultsButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
         self.cancelButton.connect('clicked(bool)', self.onCancelButton)
@@ -357,25 +359,6 @@ class DeepInferWidget:
             if item.isSelected():
                 self.downloadButton.enabled = True
                 self.selectedModelPath = self.modelTableItems[item]
-
-    '''
-    def printPythonCommand(self):
-        self.modelParameters.prrun()  # Do this first!
-        printStr = []
-        currentModel = self.modelParameters.model
-        varName = currentModel.__class__.__name__
-        printStr.append('myModel = {0}()'.format(varName))
-        for key in dir(currentModel):
-            if key == 'GetName' or key.startswith('GetGlobal'):
-                pass
-            elif key[:3] == 'Get':
-                setAttr = key.replace("Get", "Set", 1)
-                if hasattr(currentModel, setAttr):
-                    value = eval("currentModel.{0}()".format(key))
-                    printStr.append('myModel.{0}({1})'.format(setAttr, value))
-
-        print("\n".join(printStr))
-    '''
 
     def onLogicRunStop(self):
         self.applyButton.setEnabled(True)
@@ -446,6 +429,20 @@ class DeepInferWidget:
             self.downloadButton.visible = False
             self.connectButton.visible = True
         self.connectButton.enabled = True
+
+    def onTestDockerButton(self):
+        cmd = []
+        cmd.append(self.dockerPath.currentPath)
+        cmd.append('--version')
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        message = p.stdout.readline()
+        if message.startswith('Docker version'):
+            qt.QMessageBox.information(None, 'Docker Status', 'Docker is configured correctly'
+                                                              ' ({}).'.format(message))
+        else:
+            qt.QMessageBox.critical(None, 'Docker Status', 'Docker is not configured correctly. Check your docker '
+                                                              'installation and make sure that it is configured to '
+                                                              'be run by non-root user.')
 
     def onDownloadButton(self):
         with open(self.selectedModelPath) as json_data:
