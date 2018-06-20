@@ -489,6 +489,7 @@ class DeepInferWidget:
         def hide_download():
             downloadWidget.hide()
         closeButton.connect('clicked(bool)', hide_download)
+        shutil.copy(self.selectedModelPath, os.path.join(JSON_LOCAL_DIR, os.path.basename(self.selectedModelPath)))
 
 
     '''
