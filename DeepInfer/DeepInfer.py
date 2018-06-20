@@ -448,6 +448,54 @@ class DeepInferWidget:
         with open(self.selectedModelPath) as json_data:
             model = json.load(json_data)
         size = model['docker']['size']
+        model_name = model['name']
+        dockerhub_address = model['docker']['dockerhub_repository'] + '@' + model['docker']['digest']
+        if platform.system() == 'Windows':
+            terminal = 'Command Prompt or PowerShell, but not PowerShell ISE'
+        else:
+            terminal = 'terminal'
+        message_title = '1. Copy the following command from the box below.\n' \
+                        '2. Open the {}, paste and run the copied command.\n' \
+                        '3. Wait until the docker image download is finished.\n' \
+                        '4. Restart 3D Slicer.\n' \
+                        '5. You should see the downloaded model in the \"Local Models\" section.\n' \
+                        '(Please note that the size of the \"{}\" docker image is {}.\n' \
+                        'Make sure that you have enough storage space on your machine.)'.format(terminal, model_name, size)
+        pull_command = 'docker pull {}'.format(dockerhub_address)
+        mainWindow = slicer.util.mainWindow()
+        downloadWidget = qt.QWidget()
+        layout = qt.QVBoxLayout()
+        downloadWidget.setLayout(layout)
+        popupGeometry = qt.QRect()
+        if mainWindow:
+            width = 400
+            height = 200
+            popupGeometry.setWidth(width)
+            popupGeometry.setHeight(height)
+            downloadWidget.setGeometry(popupGeometry)
+
+        pos = mainWindow.pos
+        downloadWidget.move(pos.x() + (mainWindow.width - downloadWidget.width) / 2,
+                            pos.y() + (mainWindow.height - downloadWidget.height) / 2)
+
+        titleLabel = qt.QLabel(message_title)
+        layout.addWidget(titleLabel)
+        te = qt.QTextEdit(pull_command)
+        te.readOnly = True
+        layout.addWidget(te)
+        closeButton = qt.QPushButton('Close')
+        layout.addWidget(closeButton)
+        downloadWidget.show()
+        def hide_download():
+            downloadWidget.hide()
+        closeButton.connect('clicked(bool)', hide_download)
+
+
+    '''
+    def onDownloadButton(self):
+        with open(self.selectedModelPath) as json_data:
+            model = json.load(json_data)
+        size = model['docker']['size']
         resoponse = self.Question("The size of the selected image to download is {}. Are you sure you want to proceed?".format(size),
                       title="Download", parent=None)
         if resoponse:
@@ -487,6 +535,7 @@ class DeepInferWidget:
         else:
             print("Download was canceled!")
 
+    '''
     def Question(self, text, title="", parent=None):
         return qt.QMessageBox.question(parent, title, text,
                                    qt.QMessageBox.Yes, qt.QMessageBox.No) == qt.QMessageBox.Yes
