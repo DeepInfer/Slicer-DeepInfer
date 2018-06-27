@@ -342,10 +342,12 @@ class DeepInferWidget:
         for fname in jsonFiles:
             with open(fname, "r") as fp:
                 j = json.load(fp, object_pairs_hook=OrderedDict)
-            if j['docker']['digest'] in digests:
-                self.jsonModels.append(j)
-            else:
-                os.remove(fname)
+	
+            self.jsonModels.append(j)
+            # if j['docker']['digest'] in digests:
+            #     self.jsonModels.append(j)
+            # else:
+            #     os.remove(fname)
         # add all the models listed in the json files
 
         for idx, j in enumerate(self.jsonModels):
@@ -719,7 +721,6 @@ class DeepInferLogic:
         outputDict = dict()
         paramDict = dict()
         for item in iodict:
-            # print(item)
             if iodict[item]["iotype"] == "input":
                 if iodict[item]["type"] == "volume":
                     # print(inputs[item])
@@ -737,7 +738,7 @@ class DeepInferLogic:
                 elif iodict[item]["type"] == "point_vec":
                     outputDict[item] = item + '.fcsv'
             elif iodict[item]["iotype"] == "parameter":
-                paramDict[item] = params[item]
+                paramDict[item] = str(params[item])
 
         if not dataPath:
             dataPath = '/home/deepinfer/data'
@@ -942,7 +943,7 @@ class ModelParameters(object):
                            "uint64_t", "int64_t",
                            "unsigned int", "int",
                            "double", "float"]:
-                    iodict[member["param_name"]] = {"type": member["type"], "iotype": member["iotype"],
+                    iodict[member["name"]] = {"type": member["type"], "iotype": member["iotype"],
                                                             "value": member["default"]}
 
                 else:
@@ -1115,7 +1116,7 @@ class ModelParameters(object):
                           "sitk.sitkFloat64"]
                 w = self.createEnumWidget(member["name"], labels, values)
             elif t in ["double", "float"]:
-                w = self.createDoubleWidget(member["param_name"], default=member["default"])
+                w = self.createDoubleWidget(member["name"], default=member["default"])
             elif t == "bool":
                 w = self.createBoolWidget(member["name"], default=member["default"])
             elif t in ["uint8_t", "int8_t",
@@ -1123,7 +1124,7 @@ class ModelParameters(object):
                        "uint32_t", "int32_t",
                        "uint64_t", "int64_t",
                        "unsigned int", "int"]:
-                w = self.createIntWidget(member["param_name"], t, default=member["default"])
+                w = self.createIntWidget(member["name"], t, default=member["default"])
             else:
                 import sys
                 sys.stderr.write("Unknown member \"{0}\" of type \"{1}\"\n".format(member["name"], member["type"]))
