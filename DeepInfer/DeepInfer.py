@@ -17,6 +17,8 @@ from __main__ import qt, ctk, slicer
 import SimpleITK as sitk
 import sitkUtils
 
+from slicer.util import getNode, saveNode
+
 
 ICON_DIR = os.path.dirname(os.path.realpath(__file__)) + '/Resources/Icons/'
 
@@ -342,7 +344,6 @@ class DeepInferWidget:
         for fname in jsonFiles:
             with open(fname, "r") as fp:
                 j = json.load(fp, object_pairs_hook=OrderedDict)
-	
             self.jsonModels.append(j)
             # if j['docker']['digest'] in digests:
             #     self.jsonModels.append(j)
@@ -437,7 +438,7 @@ class DeepInferWidget:
         cmd.append(self.dockerPath.currentPath)
         cmd.append('--version')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        message = p.stdout.readline()
+        message = p.stdout.readline().replace('\n', '')
         if message.startswith('Docker version'):
             qt.QMessageBox.information(None, 'Docker Status', 'Docker is configured correctly'
                                                               ' ({}).'.format(message))
@@ -695,6 +696,7 @@ class DeepInferLogic:
         cmd = list()
         cmd.append(self.dockerPath)
         cmd.append('ps')
+        print(cmd)
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         slicer.app.processEvents()
         line = p.stdout.readline()
@@ -732,6 +734,13 @@ class DeepInferLogic:
                     sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
                     #except Exception as e:
                     #    print(e.message)
+                elif iodict[item]["type"] == "point_vec":
+                    input_node_name = inputs[item].GetName()
+                    fidListNode = getNode(input_node_name)
+                    fileName = item + '.fcsv'
+                    inputDict[item] = fileName
+                    output_path = str(os.path.join(TMP_PATH, fileName))
+                    saveNode(fidListNode, output_path)
             elif iodict[item]["iotype"] == "output":
                 if iodict[item]["type"] == "volume":
                       outputDict[item] = item + '.nrrd'
@@ -1055,12 +1064,15 @@ class ModelParameters(object):
                 fiducialSelector.setMRMLScene(slicer.mrmlScene)
                 fiducialSelector.setToolTip("Pick the Markups node for the point list.")
 
-
                 fiducialSelector.connect("nodeActivated(vtkMRMLNode*)",
-                                         lambda node, name=member["name"]: self.onFiducialListNode(name, node, member["iotype"]))
-                self.prerun_callbacks.append(
-                    lambda w=fiducialSelector, name=member["name"], : self.onFiducialListNode(name, w.currentNode(), member["iotype"]))
-
+                                         lambda node, name=member["name"]
+                                         : self.onFiducialListNode(name, node,
+                                         member["iotype"]))
+                self.prerun_callbacks.append(lambda w=fiducialSelector,
+                             name=member["name"],
+                             : self.onFiducialListNode(name,
+                             w.currentNode(),
+                             member["iotype"]))
                 w = fiducialSelector
 
             elif "enum" in member:
@@ -1340,9 +1352,9 @@ class ModelParameters(object):
 
     def onFiducialListNode(self, name, mrmlNode, io):
         self.params[name] = mrmlNode
-        if io == "input":
+        if name.lower().startswith("input"):
             self.inputs[name] = mrmlNode
-        elif io == "output":
+        else:
             self.outputs[name] = mrmlNode
 
         '''
