@@ -142,7 +142,7 @@ class DeepInferWidget:
         if platform.system() == 'Linux':
             self.dockerPath.setCurrentPath('/usr/bin/docker')
         if platform.system() == 'Windows':
-            self.dockerPath.setCurrentPath("C:/Program Files/Docker/Docker/resources/bin/docker.exe")
+            self.dockerPath.setCurrentPath("C:/Program Files/Docker/Docker/resources/docker.exe")
         
         ### use nvidia-docker if it is installed
         nvidiaDockerPath = self.dockerPath.currentPath.replace('bin/docker', 'bin/nvidia-docker')
@@ -645,7 +645,7 @@ class DeepInferLogic:
                 defualt_path = '/usr/bin/docker'
                 self.setDockerPath(defualt_path)
             elif platform.system() == 'Windows':
-                defualt_path = "C:/Program Files/Docker/Docker/resources/bin/docker.exe"
+                defualt_path = "C:/Program Files/Docker/Docker/resources/docker.exe"
                 self.setDockerPath(defualt_path)
             else:
                 print('could not determine system type')
