@@ -1,4 +1,4 @@
-import Queue
+import queue
 import json
 import platform
 import os
@@ -9,6 +9,8 @@ import threading
 from collections import OrderedDict
 from glob import glob
 from time import sleep
+
+from functools import reduce
 
 from __main__ import qt, ctk, slicer
 
@@ -338,8 +340,7 @@ class DeepInferWidget:
 
     def populateLocalModels(self):
         digests = self.getAllDigests()
-        jsonFiles = glob(JSON_LOCAL_DIR + "/*.json")
-        jsonFiles.sort(cmp=lambda x, y: cmp(os.path.basename(x), os.path.basename(y)))
+        jsonFiles = sorted(glob(JSON_LOCAL_DIR + "/*.json"))
         self.jsonModels = []
         for fname in jsonFiles:
             with open(fname, "r") as fp:
@@ -407,22 +408,22 @@ class DeepInferWidget:
             self.downloadButton.visible = True
             self.connectButton.visible = False
             self.connectButton.enabled = False
-            import urllib2
+            from urllib.request import urlopen
             url = 'https://api.github.com/repos/DeepInfer/Model-Registry/contents/'
-            response = urllib2.urlopen(url)
+            response = urlopen(url)
             data = json.load(response)
             for item in data:
                 if 'json' in item['name']:
                     # print(item['name'])
                     url = item['url']
-                    response = urllib2.urlopen(url)
+                    response = urlopen(url)
                     data = json.load(response)
                     dl_url = data['download_url']
                     print("downloading: {}...".format(dl_url))
-                    response = urllib2.urlopen(dl_url)
+                    response = urlopen(dl_url)
                     content = response.read()
                     outputPath = os.path.join(JSON_CLOUD_DIR, dl_url.split('/')[-1])
-                    with open(outputPath, 'w') as f:
+                    with open(outputPath, 'wb') as f:
                         f.write(content)
             self.populateModelRegistryTable()
         except Exception as e:
@@ -438,7 +439,7 @@ class DeepInferWidget:
         cmd.append(self.dockerPath.currentPath)
         cmd.append('--version')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        message = p.stdout.readline().replace('\n', '')
+        message = p.stdout.readline().decode('utf-8').replace('\n', '')
         if message.startswith('Docker version'):
             qt.QMessageBox.information(None, 'Docker Status', 'Docker is configured correctly'
                                                               ' ({}).'.format(message))
@@ -630,7 +631,7 @@ class DeepInferLogic:
     """
 
     def __init__(self):
-        self.main_queue = Queue.Queue()
+        self.main_queue = queue.Queue()
         self.main_queue_running = False
         self.thread = threading.Thread()
         self.abort = False
@@ -699,7 +700,7 @@ class DeepInferLogic:
         print(cmd)
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         slicer.app.processEvents()
-        line = p.stdout.readline()
+        line = p.stdout.readline().decode('utf-8')
         if line[:9] == 'CONTAINER':
             return True
         return False
@@ -708,7 +709,7 @@ class DeepInferLogic:
         try:
             assert self.checkDockerDaemon(), "Docker Daemon is not running"
         except Exception as e:
-            print(e.message)
+            print(e)
             self.abort = True
 
         modules = slicer.modules
@@ -732,8 +733,6 @@ class DeepInferLogic:
                     fileName = item + '.nrrd'
                     inputDict[item] = fileName
                     sitk.WriteImage(img, str(os.path.join(TMP_PATH, fileName)))
-                    #except Exception as e:
-                    #    print(e.message)
                 elif iodict[item]["type"] == "point_vec":
                     input_node_name = inputs[item].GetName()
                     fidListNode = getNode(input_node_name)
@@ -812,7 +811,7 @@ class DeepInferLogic:
 
         '''
         except Exception as e:
-            msg = e.message
+            msg = e
             qt.QMessageBox.critical(slicer.util.mainWindow(), "Exception during execution of ", msg)
             slicer.modules.DeepInferWidget.applyButton.enabled = True
             slicer.modules.DeepInferWidget.progress.hide = True
