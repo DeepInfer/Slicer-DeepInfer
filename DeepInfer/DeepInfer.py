@@ -1,4 +1,4 @@
-import Queue
+import queue
 import json
 import platform
 import os
@@ -630,7 +630,7 @@ class DeepInferLogic:
     """
 
     def __init__(self):
-        self.main_queue = Queue.Queue()
+        self.main_queue = queue.Queue()
         self.main_queue_running = False
         self.thread = threading.Thread()
         self.abort = False
